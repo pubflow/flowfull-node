@@ -30,7 +30,8 @@ const createSubscriptionSchema = z.object({
   // Custom subscription fields (used when product_id is null)
   price_cents: z.number().int().positive().optional(),
   currency: z.string().length(3).optional(),
-  billing_interval: z.enum(['monthly', 'yearly', 'weekly', 'daily']).optional(),
+  billing_interval: z.enum(['monthly', 'yearly', 'weekly', 'daily']).default('monthly'),
+  interval_multiplier: z.number().int().min(1).max(12).default(1),
   trial_days: z.number().int().min(0).optional(),
 
   // Optional overrides (even for product-based subscriptions)
@@ -168,10 +169,17 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         trial_end: finalTrialDays > 0 ? new Date(now.getTime() + finalTrialDays * 24 * 60 * 60 * 1000).toISOString() : null,
         price_cents: finalPriceCents,
         currency: finalCurrency,
+        // New billing fields
+        billing_interval: billingInterval,
+        interval_multiplier: validatedData.interval_multiplier,
+        next_billing_date: periodEnd, // Use calculated period end
+        last_billing_attempt: null,
+        billing_retry_count: 0,
+        max_retry_attempts: 3,
+        billing_status: 'active',
         metadata: JSON.stringify({
           ...validatedData.metadata,
           product_name: product.name,
-          billing_interval: billingInterval,
           is_product_subscription: true
         })
       };
@@ -248,9 +256,16 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         trial_end: finalTrialDays > 0 ? new Date(now.getTime() + finalTrialDays * 24 * 60 * 60 * 1000).toISOString() : null,
         price_cents: validatedData.price_cents,
         currency: validatedData.currency,
+        // New billing fields
+        billing_interval: validatedData.billing_interval,
+        interval_multiplier: validatedData.interval_multiplier,
+        next_billing_date: periodEnd, // Use calculated period end
+        last_billing_attempt: null,
+        billing_retry_count: 0,
+        max_retry_attempts: 3,
+        billing_status: 'active',
         metadata: JSON.stringify({
           ...validatedData.metadata,
-          billing_interval: validatedData.billing_interval,
           is_custom_subscription: true
         })
       };

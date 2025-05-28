@@ -173,6 +173,14 @@ export interface SubscriptionTable {
   price_cents: number;
   currency: string;
   metadata: string | null;
+  // New billing fields for automatic renewals
+  billing_interval: string;
+  interval_multiplier: number;
+  next_billing_date: string | null;
+  last_billing_attempt: string | null;
+  billing_retry_count: number;
+  max_retry_attempts: number;
+  billing_status: string;
   created_at: string;
   updated_at: string;
 }

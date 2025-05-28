@@ -6,6 +6,7 @@ import { timeout } from 'hono/timeout';
 import { HTTPException } from 'hono/http-exception';
 import { config, isDevelopment } from '@/config/environment';
 import { authLoggingMiddleware } from '@/lib/auth/middleware';
+import { initializeRenewalSystem, shutdownRenewalSystem } from '@/lib/renewal-system';
 
 // Import routes
 import healthRoutes from '@/routes/health';
@@ -16,6 +17,8 @@ import paymentMethodRoutes from '@/routes/payment-methods';
 import addressRoutes from '@/routes/addresses';
 import subscriptionRoutes from '@/routes/subscriptions';
 import guestConversionRoutes from '@/routes/guest-conversion';
+import renewalWebhookRoutes from '@/routes/webhooks/renewals';
+import adminRenewalRoutes from '@/routes/admin/renewals';
 
 // Create Hono app
 const app = new Hono();
@@ -91,11 +94,13 @@ if (config.REQUIRE_USER_AGENT) {
 app.route('/health', healthRoutes);
 app.route('/bridge-payment', paymentRoutes);
 app.route('/bridge-payment/webhooks', webhookRoutes);
+app.route('/bridge-payment/webhooks/renewals', renewalWebhookRoutes);
 app.route('/bridge-payment/customers', customerRoutes);
 app.route('/bridge-payment/payment-methods', paymentMethodRoutes);
 app.route('/bridge-payment/addresses', addressRoutes);
 app.route('/bridge-payment/subscriptions', subscriptionRoutes);
 app.route('/bridge-payment/guest', guestConversionRoutes);
+app.route('/bridge-payment/admin/renewals', adminRenewalRoutes);
 
 // Root endpoint
 app.get('/', (c) => {
@@ -112,7 +117,9 @@ app.get('/', (c) => {
       addresses: '/bridge-payment/addresses',
       subscriptions: '/bridge-payment/subscriptions',
       guest_conversion: '/bridge-payment/guest',
-      webhooks: '/bridge-payment/webhooks'
+      webhooks: '/bridge-payment/webhooks',
+      renewal_webhooks: '/bridge-payment/webhooks/renewals',
+      admin_renewals: '/bridge-payment/admin/renewals'
     }
   });
 });
@@ -178,6 +185,9 @@ process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
 
   try {
+    // Shutdown renewal system
+    await shutdownRenewalSystem();
+
     // Close database connections
     const { closeDatabase } = await import('@/lib/database/connection');
     await closeDatabase();
@@ -194,6 +204,9 @@ process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
 
   try {
+    // Shutdown renewal system
+    await shutdownRenewalSystem();
+
     // Close database connections
     const { closeDatabase } = await import('@/lib/database/connection');
     await closeDatabase();
@@ -216,6 +229,15 @@ console.log(`🔌 Database: ${config.DATABASE_URL.replace(/\/\/.*@/, '//***:***@
 console.log(`🔗 Flowless API: ${config.FLOWLESS_API_URL}`);
 console.log(`💳 Enabled providers: ${config.ENABLED_PROVIDERS.join(', ')}`);
 console.log(`🔒 Guest checkout: ${config.GUEST_CHECKOUT_ENABLED ? 'enabled' : 'disabled'}`);
+
+// Initialize renewal system
+if (process.env.RENEWALS_ENABLED !== 'false') {
+  initializeRenewalSystem().catch(error => {
+    console.error('❌ Failed to initialize renewal system:', error);
+  });
+} else {
+  console.log('⏸️ Renewal system disabled via environment variable');
+}
 
 export default {
   port,

@@ -72,7 +72,7 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
   // Update subscription status
   async updateStatus(id: string, status: SubscriptionStatus, metadata?: any): Promise<SubscriptionTable | null> {
     console.log('📝 Updating subscription status:', { id, status });
-    
+
     const updateData: any = {
       status,
       updated_at: this.getCurrentTimestamp()
@@ -99,7 +99,7 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
   // Cancel subscription at period end
   async cancelAtPeriodEnd(id: string, cancel: boolean = true): Promise<SubscriptionTable | null> {
     console.log('📝 Setting cancel_at_period_end:', { id, cancel });
-    
+
     const result = await this.db
       .updateTable('subscriptions')
       .set({
@@ -119,12 +119,12 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
 
   // Update subscription period
   async updatePeriod(
-    id: string, 
-    currentPeriodStart: string, 
+    id: string,
+    currentPeriodStart: string,
     currentPeriodEnd: string
   ): Promise<SubscriptionTable | null> {
     console.log('📝 Updating subscription period:', { id, currentPeriodStart, currentPeriodEnd });
-    
+
     const result = await this.db
       .updateTable('subscriptions')
       .set({
@@ -159,7 +159,7 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
   async getExpiringSubscriptions(daysAhead: number = 7): Promise<SubscriptionTable[]> {
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + daysAhead);
-    
+
     const results = await this.db
       .selectFrom('subscriptions')
       .selectAll()
@@ -174,7 +174,7 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
   // Convert guest subscriptions to user (when guest registers)
   async convertGuestToUser(guestEmail: string, userId: string): Promise<SubscriptionTable[]> {
     console.log('🔄 Converting guest subscriptions to user:', { guestEmail, userId });
-    
+
     // First, get the guest customer
     const guestCustomer = await this.db
       .selectFrom('provider_customers')
@@ -201,6 +201,63 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
 
     console.log(`✅ Converted ${results.length} guest subscriptions to user`);
     return results as SubscriptionTable[];
+  }
+
+  // Find subscriptions due for renewal
+  async findDueForRenewal(limit: number = 100): Promise<SubscriptionTable[]> {
+    const result = await this.db
+      .selectFrom('subscriptions')
+      .selectAll()
+      .where('next_billing_date', '<=', new Date().toISOString())
+      .where('billing_status', '=', 'active')
+      .where('status', 'in', ['active', 'trialing'])
+      .limit(limit)
+      .execute();
+
+    return result as SubscriptionTable[];
+  }
+
+  // Find subscriptions ready for retry
+  async findReadyForRetry(limit: number = 50): Promise<SubscriptionTable[]> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    const result = await this.db
+      .selectFrom('subscriptions')
+      .selectAll()
+      .where('billing_status', '=', 'past_due')
+      .where((eb) => eb('billing_retry_count', '<', eb.ref('max_retry_attempts')))
+      .where('last_billing_attempt', '<=', oneHourAgo)
+      .limit(limit)
+      .execute();
+
+    return result as SubscriptionTable[];
+  }
+
+  // Update billing fields
+  async updateBillingFields(
+    id: string,
+    updates: {
+      billing_interval?: string;
+      interval_multiplier?: number;
+      next_billing_date?: string;
+      last_billing_attempt?: string;
+      billing_retry_count?: number;
+      billing_status?: string;
+      current_period_start?: string;
+      current_period_end?: string;
+    }
+  ): Promise<SubscriptionTable | null> {
+    const result = await this.db
+      .updateTable('subscriptions')
+      .set({
+        ...updates,
+        updated_at: this.getCurrentTimestamp()
+      } as any)
+      .where('id', '=', id)
+      .returningAll()
+      .executeTakeFirst();
+
+    return result as SubscriptionTable | null;
   }
 
   // List subscriptions with pagination and filters
@@ -240,11 +297,11 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
 
     if (options.isGuest !== undefined || options.guestEmail) {
       query = query.innerJoin('provider_customers', 'subscriptions.customer_id', 'provider_customers.id');
-      
+
       if (options.isGuest !== undefined) {
         query = query.where('provider_customers.is_guest', '=', options.isGuest);
       }
-      
+
       if (options.guestEmail) {
         query = query.where('provider_customers.guest_email', '=', options.guestEmail);
       }
@@ -257,7 +314,7 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
 
     // Apply pagination and ordering
     query = query.orderBy('subscriptions.created_at', 'desc');
-    
+
     if (options.limit) {
       query = query.limit(options.limit);
     }
