@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import {
   authMiddleware,
   optionalAuthMiddleware,
@@ -73,7 +74,8 @@ const createPaymentIntentSchema = z.object({
 
 const confirmPaymentIntentSchema = z.object({
   payment_method_id: z.string().optional(),
-  return_url: z.string().url().optional()
+  return_url: z.string().url().optional(),
+  save_payment_method: z.boolean().optional().default(false)
 });
 
 // Create payment intent (without middleware for testing)
@@ -270,6 +272,12 @@ payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c)
     const validatedData = confirmPaymentIntentSchema.parse(body);
     const userContext = getUserContext(c);
 
+    console.log('🔍 Confirming payment intent:', {
+      paymentId,
+      savePaymentMethod: validatedData.save_payment_method,
+      userContext: userContext.isAuthenticated ? 'authenticated' : 'guest'
+    });
+
     // Get payment from database
     const paymentRepo = await getPaymentRepository();
     const payment = await paymentRepo.findById(paymentId);
@@ -296,11 +304,103 @@ payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c)
     // Get payment adapter
     const adapter = await getPaymentAdapterWithFailover(payment.provider_id);
 
+    // Prepare customer ID for saving payment method
+    let customerId: string | undefined;
+    if (validatedData.save_payment_method) {
+      if (userContext.isAuthenticated) {
+        // For authenticated users, get or create customer
+        const { getCustomerRepository } = await import('@/lib/database/repositories');
+        const customerRepo = await getCustomerRepository();
+
+        const existingCustomer = await customerRepo.findByUserAndProvider(
+          userContext.userId!,
+          payment.provider_id
+        );
+
+        if (existingCustomer) {
+          customerId = existingCustomer.provider_customer_id;
+          console.log('🔍 Using existing customer:', customerId);
+        } else {
+          // Create customer for authenticated user
+          console.log('👤 Creating new customer for authenticated user');
+          const newCustomer = await adapter.createCustomer({
+            email: `user-${userContext.userId}@example.com`, // Simplified email
+            name: 'User',
+            metadata: { user_id: userContext.userId! }
+          });
+
+          // Save customer to database
+          await customerRepo.create({
+            id: randomUUID(),
+            user_id: userContext.userId!,
+            organization_id: null,
+            provider_id: payment.provider_id,
+            provider_customer_id: newCustomer.id,
+            is_guest: false,
+            guest_email: null,
+            guest_name: null,
+            metadata: JSON.stringify(newCustomer.provider_data || {}),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+          customerId = newCustomer.id;
+          console.log('✅ Created new customer:', customerId);
+        }
+      } else if (userContext.isGuest && payment.guest_email) {
+        // For guests, create a guest customer
+        console.log('👤 Creating guest customer for payment method saving');
+
+        // Parse guest_data if it's a string
+        let guestData: any = {};
+        if (typeof payment.guest_data === 'string') {
+          try {
+            guestData = JSON.parse(payment.guest_data);
+          } catch (e) {
+            console.warn('Failed to parse guest_data:', e);
+          }
+        } else {
+          guestData = payment.guest_data || {};
+        }
+
+        const guestCustomer = await adapter.createCustomer({
+          email: payment.guest_email,
+          name: guestData.name || 'Guest User',
+          metadata: {
+            is_guest: 'true',
+            guest_email: payment.guest_email
+          }
+        });
+
+        // Save guest customer to database
+        const { getCustomerRepository } = await import('@/lib/database/repositories');
+        const customerRepo = await getCustomerRepository();
+        await customerRepo.create({
+          id: randomUUID(),
+          user_id: null,
+          organization_id: null,
+          provider_id: payment.provider_id,
+          provider_customer_id: guestCustomer.id,
+          is_guest: true,
+          guest_email: payment.guest_email,
+          guest_name: guestData.name || null,
+          metadata: JSON.stringify(guestCustomer.provider_data || {}),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+        customerId = guestCustomer.id;
+        console.log('✅ Created guest customer:', customerId);
+      }
+    }
+
     // Confirm payment with provider
     const confirmedIntent = await adapter.confirmPaymentIntent({
       payment_intent_id: payment.provider_intent_id!,
       payment_method_id: validatedData.payment_method_id,
-      return_url: validatedData.return_url
+      return_url: validatedData.return_url,
+      save_payment_method: validatedData.save_payment_method,
+      customer_id: customerId
     });
 
     // Update payment status
@@ -311,11 +411,69 @@ payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c)
       mappedStatus === PaymentStatus.FAILED ? 'Payment confirmation failed' : undefined
     );
 
+    // If payment succeeded and save_payment_method is true, save the payment method
+    let paymentMethodSaved = false;
+    if (mappedStatus === PaymentStatus.SUCCEEDED && validatedData.save_payment_method && confirmedIntent.payment_method_id) {
+      console.log('💾 Saving payment method after successful payment...');
+
+      try {
+        // Get payment method details from provider
+        const paymentMethod = await adapter.getPaymentMethod(confirmedIntent.payment_method_id);
+
+        // Save to database
+        const { getPaymentMethodRepository } = await import('@/lib/database/repositories');
+        const paymentMethodRepo = await getPaymentMethodRepository();
+
+        // Parse guest_data if needed
+        let guestData: any = {};
+        if (userContext.isGuest && payment.guest_data) {
+          if (typeof payment.guest_data === 'string') {
+            try {
+              guestData = JSON.parse(payment.guest_data);
+            } catch (e) {
+              console.warn('Failed to parse guest_data for payment method:', e);
+            }
+          } else {
+            guestData = payment.guest_data;
+          }
+        }
+
+        // Create payment method data for both authenticated users and guests
+        const paymentMethodData = {
+          id: randomUUID(),
+          user_id: userContext.isAuthenticated ? userContext.userId! : null,
+          organization_id: null,
+          provider_id: payment.provider_id,
+          provider_payment_method_id: paymentMethod.id,
+          payment_type: paymentMethod.type,
+          last_four: paymentMethod.card?.last_four || null,
+          expiry_month: paymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
+          expiry_year: paymentMethod.card?.exp_year?.toString() || null,
+          card_brand: paymentMethod.card?.brand || null,
+          is_default: false,
+          billing_address_id: null,
+          is_guest: userContext.isGuest,
+          guest_email: userContext.isGuest ? payment.guest_email : null,
+          guest_name: userContext.isGuest ? guestData.name || null : null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        await paymentMethodRepo.create(paymentMethodData);
+        paymentMethodSaved = true;
+        console.log(`✅ Payment method saved successfully for ${userContext.isGuest ? 'guest' : 'authenticated user'}`);
+      } catch (saveError) {
+        console.error('⚠️ Failed to save payment method:', saveError);
+        // Don't fail the payment confirmation if saving the payment method fails
+      }
+    }
+
     return c.json({
       id: updatedPayment!.id,
       status: updatedPayment!.status,
       provider_intent_id: payment.provider_intent_id,
       requires_action: mappedStatus === PaymentStatus.REQUIRES_ACTION,
+      payment_method_saved: paymentMethodSaved,
       updated_at: updatedPayment!.updated_at
     });
 

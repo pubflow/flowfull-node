@@ -156,6 +156,7 @@ Content-Type: application/json
 |-------|------|----------|-------------|
 | `payment_method_id` | string | No | Payment method ID to use |
 | `return_url` | string | No | URL to redirect after payment |
+| `save_payment_method` | boolean | No | Whether to save the payment method for future use (default: false) |
 
 ### Response
 
@@ -170,6 +171,7 @@ Content-Type: application/json
   "status": "succeeded",
   "provider_intent_id": "pi_1234567890abcdef",
   "requires_action": false,
+  "payment_method_saved": true,
   "updated_at": "2025-01-15T10:35:00Z"
 }
 ```
@@ -199,6 +201,18 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_123456
   }'
 ```
 
+#### Confirm and Save Payment Method
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_1234567890/confirm" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_method_id": "pm_1234567890",
+    "return_url": "https://yoursite.com/payment/success",
+    "save_payment_method": true
+  }'
+```
+
 #### Confirm Guest Payment
 ```bash
 curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_guest_123/confirm" \
@@ -206,6 +220,17 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_guest_
   -d '{
     "payment_method_id": "pm_guest_456",
     "return_url": "https://yoursite.com/guest/success"
+  }'
+```
+
+#### Confirm Guest Payment and Save Method (for future guest use)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_guest_123/confirm" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payment_method_id": "pm_guest_456",
+    "return_url": "https://yoursite.com/guest/success",
+    "save_payment_method": true
   }'
 ```
 

@@ -90,6 +90,8 @@ export interface ConfirmPaymentIntentRequest {
   payment_intent_id: string;
   payment_method_id?: string;
   return_url?: string;
+  save_payment_method?: boolean;
+  customer_id?: string; // For saving payment method
 }
 
 export interface CreateCustomerRequest {

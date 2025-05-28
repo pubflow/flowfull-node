@@ -5,6 +5,8 @@ import { PaymentUserRepository } from './payment-users';
 import { CustomerRepository } from './customers';
 import { PaymentMethodRepository } from './payment-methods';
 import { AddressRepository } from './addresses';
+import { SubscriptionRepository } from './subscriptions';
+import { ProductRepository } from './products';
 
 // Repository factory to create repository instances with database connection
 export class RepositoryFactory {
@@ -50,6 +52,22 @@ export class RepositoryFactory {
     return this.repositories.get('addresses');
   }
 
+  static async getSubscriptionRepository(): Promise<SubscriptionRepository> {
+    if (!this.repositories.has('subscriptions')) {
+      const db = await getDatabase();
+      this.repositories.set('subscriptions', new SubscriptionRepository(db));
+    }
+    return this.repositories.get('subscriptions');
+  }
+
+  static async getProductRepository(): Promise<ProductRepository> {
+    if (!this.repositories.has('products')) {
+      const db = await getDatabase();
+      this.repositories.set('products', new ProductRepository(db));
+    }
+    return this.repositories.get('products');
+  }
+
   // Clear repository cache (useful for testing)
   static clearCache(): void {
     this.repositories.clear();
@@ -77,6 +95,14 @@ export async function getAddressRepository(): Promise<AddressRepository> {
   return RepositoryFactory.getAddressRepository();
 }
 
+export async function getSubscriptionRepository(): Promise<SubscriptionRepository> {
+  return RepositoryFactory.getSubscriptionRepository();
+}
+
+export async function getProductRepository(): Promise<ProductRepository> {
+  return RepositoryFactory.getProductRepository();
+}
+
 // Export repository classes
 export { BaseRepository } from './base';
 export { PaymentRepository } from './payments';
@@ -84,6 +110,8 @@ export { PaymentUserRepository } from './payment-users';
 export { CustomerRepository } from './customers';
 export { PaymentMethodRepository } from './payment-methods';
 export { AddressRepository } from './addresses';
+export { SubscriptionRepository } from './subscriptions';
+export { ProductRepository } from './products';
 
 // Export types
 export type { Database } from '../types';

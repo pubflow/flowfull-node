@@ -40,15 +40,15 @@ export interface CustomerUpdate {
   updated_at: string;
 }
 
-export class CustomerRepository extends BaseRepository {
+export class CustomerRepository extends BaseRepository<'provider_customers'> {
   constructor(db: Kysely<Database>) {
-    super(db);
+    super(db, 'provider_customers');
   }
 
   // Create customer
   async create(data: CustomerInsert): Promise<CustomerTable> {
     console.log('💾 Creating customer in database...');
-    
+
     const result = await this.db
       .insertInto('provider_customers')
       .values(data as any) // Type cast for SQLite compatibility
@@ -97,6 +97,18 @@ export class CustomerRepository extends BaseRepository {
     return results as CustomerTable[];
   }
 
+  // Find customer by user ID and provider ID
+  async findByUserAndProvider(userId: string, providerId: string): Promise<CustomerTable | null> {
+    const result = await this.db
+      .selectFrom('provider_customers')
+      .selectAll()
+      .where('user_id', '=', userId)
+      .where('provider_id', '=', providerId)
+      .executeTakeFirst();
+
+    return result as CustomerTable | null;
+  }
+
   // Find guest customers by email
   async findGuestsByEmail(email: string): Promise<CustomerTable[]> {
     const results = await this.db
@@ -112,7 +124,7 @@ export class CustomerRepository extends BaseRepository {
   // Update customer
   async update(id: string, data: CustomerUpdate): Promise<CustomerTable | null> {
     console.log('💾 Updating customer:', id);
-    
+
     const result = await this.db
       .updateTable('provider_customers')
       .set(data as any) // Type cast for SQLite compatibility
@@ -130,7 +142,7 @@ export class CustomerRepository extends BaseRepository {
   // Convert guest to user (when guest registers)
   async convertGuestToUser(customerId: string, userId: string): Promise<CustomerTable | null> {
     console.log('🔄 Converting guest customer to user:', { customerId, userId });
-    
+
     const result = await this.db
       .updateTable('provider_customers')
       .set({
@@ -155,7 +167,7 @@ export class CustomerRepository extends BaseRepository {
   // Delete customer
   async delete(id: string): Promise<boolean> {
     console.log('🗑️ Deleting customer:', id);
-    
+
     const result = await this.db
       .deleteFrom('provider_customers')
       .where('id', '=', id)
@@ -220,10 +232,10 @@ export class CustomerRepository extends BaseRepository {
   // Clean up old guest customers (optional maintenance)
   async cleanupOldGuests(daysOld: number = 30): Promise<number> {
     console.log(`🧹 Cleaning up guest customers older than ${daysOld} days...`);
-    
+
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-    
+
     const result = await this.db
       .deleteFrom('provider_customers')
       .where('is_guest', '=', 1)
@@ -232,7 +244,7 @@ export class CustomerRepository extends BaseRepository {
 
     const deletedCount = Number(result.numDeletedRows);
     console.log(`✅ Cleaned up ${deletedCount} old guest customers`);
-    
+
     return deletedCount;
   }
 }

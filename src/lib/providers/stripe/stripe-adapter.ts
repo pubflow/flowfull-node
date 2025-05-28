@@ -117,6 +117,12 @@ export class StripeAdapter extends PaymentAdapter {
       params.return_url = request.return_url;
     }
 
+    // If save_payment_method is true, set setup_future_usage
+    if (request.save_payment_method) {
+      params.setup_future_usage = 'off_session';
+      console.log('🔐 Setting up payment method for future use (setup_future_usage: off_session)');
+    }
+
     try {
       const paymentIntent = await this.stripe.paymentIntents.confirm(
         request.payment_intent_id,

@@ -296,14 +296,17 @@ export function getUserContext(c: Context): {
   isAuthenticated: boolean;
   isGuest: boolean;
   userId?: string;
+  organizationId?: string;
   session?: SessionData;
   guestData?: any;
 } {
+  const session = c.get('session');
   return {
-    isAuthenticated: !!c.get('session'),
+    isAuthenticated: !!session,
     isGuest: c.get('is_guest') || false,
     userId: c.get('user_id'),
-    session: c.get('session'),
+    organizationId: session?.organization_id,
+    session,
     guestData: c.get('guest_data')
   };
 }

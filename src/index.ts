@@ -14,6 +14,7 @@ import webhookRoutes from '@/routes/webhooks';
 import customerRoutes from '@/routes/customers';
 import paymentMethodRoutes from '@/routes/payment-methods';
 import addressRoutes from '@/routes/addresses';
+import subscriptionRoutes from '@/routes/subscriptions';
 import guestConversionRoutes from '@/routes/guest-conversion';
 
 // Create Hono app
@@ -93,6 +94,7 @@ app.route('/bridge-payment/webhooks', webhookRoutes);
 app.route('/bridge-payment/customers', customerRoutes);
 app.route('/bridge-payment/payment-methods', paymentMethodRoutes);
 app.route('/bridge-payment/addresses', addressRoutes);
+app.route('/bridge-payment/subscriptions', subscriptionRoutes);
 app.route('/bridge-payment/guest', guestConversionRoutes);
 
 // Root endpoint
@@ -108,6 +110,7 @@ app.get('/', (c) => {
       customers: '/bridge-payment/customers',
       payment_methods: '/bridge-payment/payment-methods',
       addresses: '/bridge-payment/addresses',
+      subscriptions: '/bridge-payment/subscriptions',
       guest_conversion: '/bridge-payment/guest',
       webhooks: '/bridge-payment/webhooks'
     }

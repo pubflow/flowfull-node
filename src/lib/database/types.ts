@@ -49,6 +49,9 @@ export interface PaymentMethodTable {
   card_brand: string | null;
   is_default: boolean;
   billing_address_id: string | null;
+  is_guest: boolean;
+  guest_email: string | null;
+  guest_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +78,9 @@ export interface CustomerTable {
   name: string | null;
   phone: string | null;
   default_payment_method_id: string | null;
+  is_guest: boolean;
+  guest_email: string | null;
+  guest_name: string | null;
   metadata: string | null; // JSON string
   created_at: string;
   updated_at: string;
@@ -150,15 +156,60 @@ export interface RefundTable {
   updated_at: string;
 }
 
+export interface SubscriptionTable {
+  id: string;
+  user_id: string | null;
+  organization_id: string | null;
+  customer_id: string; // References provider_customers table (supports both users and guests)
+  product_id: string | null; // Optional for custom donations/flexible subscriptions
+  payment_method_id: string | null;
+  provider_id: string;
+  provider_subscription_id: string | null;
+  status: string;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  trial_end: string | null;
+  price_cents: number;
+  currency: string;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Product table interface (imported from products repository)
+export interface ProductTable {
+  id: string;
+  name: string;
+  description: string | null;
+  product_type: string;
+  is_recurring: boolean;
+  price_cents: number;
+  currency: string;
+  billing_interval: string | null;
+  trial_days: number;
+  image: string | null;
+  gallery: string | null;
+  category_id: string | null;
+  parent_product_id: string | null;
+  variations: string | null;
+  metadata: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Main database interface
 export interface Database {
   payment_users: PaymentUserTable;
   payments: PaymentTable;
   payment_methods: PaymentMethodTable;
   payment_providers: PaymentProviderTable;
-  customers: CustomerTable;
+  provider_customers: CustomerTable;
   billing_addresses: BillingAddressTable;
   addresses: AddressTable;
+  products: ProductTable;
+  subscriptions: SubscriptionTable;
   payment_webhooks: PaymentWebhookTable;
   payment_events: PaymentEventTable;
   refunds: RefundTable;
@@ -191,6 +242,12 @@ export type PaymentEventUpdate = Partial<Omit<PaymentEventTable, 'id' | 'created
 
 export type RefundInsert = Omit<RefundTable, 'created_at' | 'updated_at'>;
 export type RefundUpdate = Partial<Omit<RefundTable, 'id' | 'created_at'>>;
+
+export type SubscriptionInsert = Omit<SubscriptionTable, 'created_at' | 'updated_at'>;
+export type SubscriptionUpdate = Partial<Omit<SubscriptionTable, 'id' | 'created_at'>>;
+
+export type ProductInsert = Omit<ProductTable, 'created_at' | 'updated_at'>;
+export type ProductUpdate = Partial<Omit<ProductTable, 'id' | 'created_at'>>;
 
 // Payment status enum
 export enum PaymentStatus {
@@ -235,4 +292,14 @@ export enum RefundStatus {
   SUCCEEDED = 'succeeded',
   FAILED = 'failed',
   CANCELED = 'canceled'
+}
+
+// Subscription status
+export enum SubscriptionStatus {
+  ACTIVE = 'active',
+  CANCELED = 'canceled',
+  PAST_DUE = 'past_due',
+  TRIALING = 'trialing',
+  INCOMPLETE = 'incomplete',
+  INCOMPLETE_EXPIRED = 'incomplete_expired'
 }
