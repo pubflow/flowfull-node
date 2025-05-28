@@ -29,7 +29,7 @@ export class StripeAdapter extends PaymentAdapter {
     console.log('🌍 Environment:', config.environment);
 
     this.stripe = new Stripe(config.api_key, {
-      apiVersion: '2023-10-16',
+      apiVersion: '2025-04-30.basil',
       typescript: true
     });
   }
@@ -44,9 +44,37 @@ export class StripeAdapter extends PaymentAdapter {
       supports_subscriptions: true,
       supports_3d_secure: true,
       supported_currencies: [
+        // Major global currencies
         'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'SEK', 'NOK', 'DKK',
-        'PLN', 'CZK', 'HUF', 'BGN', 'RON', 'HRK', 'ISK', 'MXN', 'BRL', 'SGD',
-        'HKD', 'NZD', 'KRW', 'INR', 'MYR', 'THB', 'PHP', 'TWD', 'IDR', 'VND'
+        'PLN', 'CZK', 'HUF', 'BGN', 'RON', 'HRK', 'ISK', 'SGD', 'HKD', 'NZD',
+        'KRW', 'INR', 'MYR', 'THB', 'PHP', 'TWD', 'IDR', 'VND',
+
+        // Latin American currencies (including DOP!)
+        'ARS', // Argentina - Peso Argentino
+        'BOB', // Bolivia - Boliviano
+        'BRL', // Brazil - Real Brasileiro
+        'CLP', // Chile - Peso Chileno
+        'COP', // Colombia - Peso Colombiano
+        'CRC', // Costa Rica - Colón Costarricense
+        'DOP', // Dominican Republic - Peso Dominicano ✅
+        'GTQ', // Guatemala - Quetzal
+        'HNL', // Honduras - Lempira
+        'MXN', // Mexico - Peso Mexicano
+        'NIO', // Nicaragua - Córdoba
+        'PAB', // Panama - Balboa
+        'PEN', // Peru - Sol Peruano
+        'PYG', // Paraguay - Guaraní
+        'UYU', // Uruguay - Peso Uruguayo
+
+        // Caribbean currencies
+        'BBD', // Barbados - Dollar
+        'BMD', // Bermuda - Dollar
+        'BSD', // Bahamas - Dollar
+        'BZD', // Belize - Dollar
+        'JMD', // Jamaica - Dollar
+        'KYD', // Cayman Islands - Dollar
+        'TTD', // Trinidad and Tobago - Dollar
+        'XCD'  // Eastern Caribbean - Dollar
       ],
       supported_payment_methods: [
         PaymentMethodType.CREDIT_CARD,
@@ -408,7 +436,7 @@ export class StripeAdapter extends PaymentAdapter {
       id: refund.id,
       amount_cents: refund.amount,
       currency: refund.currency.toUpperCase(),
-      status: refund.status,
+      status: refund.status as any,
       reason: refund.reason || undefined,
       provider_data: refund
     };
@@ -461,9 +489,9 @@ export class StripeAdapter extends PaymentAdapter {
     if (details.address) {
       mapped.address = {
         line1: details.address.line1,
-        line2: details.address.line2 || null,
+        line2: details.address.line2 || undefined,
         city: details.address.city,
-        state: details.address.state || null,
+        state: details.address.state || undefined,
         postal_code: details.address.postal_code,
         country: details.address.country
       };

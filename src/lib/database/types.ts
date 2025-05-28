@@ -207,8 +207,30 @@ export interface ProductTable {
   updated_at: string;
 }
 
+// Users table (base users from native-payments schema)
+export interface UserTable {
+  id: string;
+  name: string;
+  last_name: string;
+  email: string;
+  user_type: string;
+  picture: string | null;
+  user_name: string | null;
+  password_hash: string | null;
+  recovery_email: string | null;
+  phone: string | null;
+  is_verified: boolean;
+  is_locked: boolean;
+  two_factor: string | null; // JSON string
+  passkeys: string | null; // JSON string
+  first_time: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Main database interface
 export interface Database {
+  users: UserTable; // Base users table from native-payments
   payment_users: PaymentUserTable;
   payments: PaymentTable;
   payment_methods: PaymentMethodTable;

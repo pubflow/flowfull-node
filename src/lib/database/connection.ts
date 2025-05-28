@@ -209,11 +209,11 @@ export async function getDatabaseStats() {
   try {
     const db = await getDatabase();
 
-    // Use the correct table names from the database schema
+    // Use the correct table names from the bridge-payments schema
     const [paymentCount, userCount, customerCount, methodCount, addressCount, webhookCount] = await Promise.all([
       db.selectFrom('payments').select(db.fn.count('id').as('count')).executeTakeFirst(),
-      db.selectFrom('payment_users').select(db.fn.count('id').as('count')).executeTakeFirst(),
-      db.selectFrom('customers').select(db.fn.count('id').as('count')).executeTakeFirst(),
+      db.selectFrom('users').select(db.fn.count('id').as('count')).executeTakeFirst(), // Correct: users table (base users from native-payments)
+      db.selectFrom('provider_customers').select(db.fn.count('id').as('count')).executeTakeFirst(), // Correct: provider_customers table
       db.selectFrom('payment_methods').select(db.fn.count('id').as('count')).executeTakeFirst(),
       db.selectFrom('addresses').select(db.fn.count('id').as('count')).executeTakeFirst(),
       db.selectFrom('payment_webhooks').select(db.fn.count('id').as('count')).executeTakeFirst()

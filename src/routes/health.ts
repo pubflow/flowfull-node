@@ -252,10 +252,10 @@ health.get('/metrics', async (c) => {
       `# TYPE bridge_payments_database_records_total gauge`,
       `bridge_payments_database_records_total{table="payments"} ${dbStats.payments}`,
       `bridge_payments_database_records_total{table="users"} ${dbStats.users}`,
-      `bridge_payments_database_records_total{table="customers"} ${dbStats.customers}`,
+      `bridge_payments_database_records_total{table="provider_customers"} ${dbStats.customers}`,
       `bridge_payments_database_records_total{table="payment_methods"} ${dbStats.payment_methods}`,
       `bridge_payments_database_records_total{table="addresses"} ${dbStats.addresses}`,
-      `bridge_payments_database_records_total{table="webhooks"} ${dbStats.webhooks}`,
+      `bridge_payments_database_records_total{table="payment_webhooks"} ${dbStats.webhooks}`,
       '',
       `# HELP bridge_payments_provider_health Provider health status (1=healthy, 0=unhealthy)`,
       `# TYPE bridge_payments_provider_health gauge`
