@@ -82,6 +82,10 @@ PAYPAL_WEBHOOK_ID=your_paypal_webhook_id
 GUEST_CHECKOUT_ENABLED=true
 ENABLED_PROVIDERS=stripe,paypal
 
+# Performance & Compression
+COMPRESSION_ENABLED=true
+COMPRESSION_FORCE_DISABLE=false  # Set to true if CompressionStream errors occur
+
 # Security
 RATE_LIMIT_REQUESTS=500
 RATE_LIMIT_WINDOW=900000
@@ -464,6 +468,54 @@ MIT License - see LICENSE file for details
 2. Review [configuration guide](docs/configuration.md) for setup issues
 3. Verify [provider setup](docs/provider-setup.md) for payment provider configuration
 4. Check [webhook integration](docs/webhook-integration.md) for event processing issues
+
+#### **Common Production Issues**
+
+##### **CompressionStream Error (Bun Runtime)**
+If you encounter `ReferenceError: CompressionStream is not defined` in production:
+
+**Problem**: Some production environments don't support the modern `CompressionStream` API that Hono's compression middleware uses.
+
+**Quick Fix**: Disable compression by setting this environment variable:
+```bash
+COMPRESSION_FORCE_DISABLE=true
+```
+
+**Alternative Solutions**:
+1. **Update Bun**: Ensure you're using the latest Bun version
+   ```bash
+   bun --version
+   curl -fsSL https://bun.sh/install | bash
+   ```
+
+2. **Use Bun flags**: Start with experimental web streams support
+   ```bash
+   bun --experimental-web-streams run dist/index.js
+   ```
+
+3. **Proxy-level compression**: Configure nginx or your reverse proxy to handle compression
+   ```nginx
+   gzip on;
+   gzip_types text/plain application/json application/javascript text/css;
+   ```
+
+4. **Docker considerations**: If using Docker, ensure your base image supports modern web APIs
+   ```dockerfile
+   FROM oven/bun:latest
+   # Use the latest Bun image with full web API support
+   ```
+
+**Environment Variables for Compression Control**:
+```bash
+# Disable compression entirely (recommended for quick fix)
+COMPRESSION_FORCE_DISABLE=true
+
+# Or keep compression enabled but with fallback handling (default)
+COMPRESSION_ENABLED=true
+COMPRESSION_FORCE_DISABLE=false
+```
+
+The API will work perfectly without compression - it only affects response size, not functionality.
 
 ### 💬 **Getting Help**
 - **GitHub Issues**: Report bugs and request features
