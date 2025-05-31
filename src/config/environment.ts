@@ -129,6 +129,7 @@ const envSchema = z.object({
 
   // Performance
   COMPRESSION_ENABLED: z.string().default('true').transform(val => val === 'true'),
+  COMPRESSION_FORCE_DISABLE: z.string().default('false').transform(val => val === 'true'),
   CACHE_ENABLED: z.string().default('true').transform(val => val === 'true'),
   CACHE_TTL: z.string().default('300').transform(Number),
 });

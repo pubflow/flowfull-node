@@ -26,9 +26,25 @@ const app = new Hono();
 // Global middleware
 app.use('*', logger());
 
-// Compression middleware
-if (config.COMPRESSION_ENABLED) {
-  app.use('*', compress());
+// Compression middleware with Bun CompressionStream compatibility check
+if (config.COMPRESSION_ENABLED && !config.COMPRESSION_FORCE_DISABLE) {
+  try {
+    // Check if CompressionStream is available in the current Bun runtime
+    if (typeof CompressionStream !== 'undefined' && CompressionStream) {
+      app.use('*', compress());
+      console.log('✅ Compression middleware enabled (CompressionStream available)');
+    } else {
+      console.warn('⚠️ CompressionStream not available in this Bun runtime, compression disabled');
+      console.warn('💡 Consider updating Bun or setting COMPRESSION_FORCE_DISABLE=true to suppress this warning');
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.warn('⚠️ Failed to initialize compression middleware:', errorMessage);
+    console.warn('🔧 Running without compression - this may affect performance but won\'t break functionality');
+    console.warn('💡 Set COMPRESSION_FORCE_DISABLE=true to disable compression and suppress these warnings');
+  }
+} else if (config.COMPRESSION_FORCE_DISABLE) {
+  console.log('🔧 Compression explicitly disabled via COMPRESSION_FORCE_DISABLE');
 }
 
 // CORS middleware
