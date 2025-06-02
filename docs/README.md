@@ -1,8 +1,8 @@
-# Bridge-Payments Documentation
+# 💳 Bridge-Payments API Documentation
 
 ## Overview
 
-Bridge-Payments is a secure, scalable payment processing backend that integrates with your existing Flowless authentication system. Built with Bun, Hono, and Kysely, it provides a unified API for handling payments across multiple providers while maintaining session validation with your main application.
+Bridge-Payments is a **frontend-friendly** payment processing API that handles Stripe, PayPal, and other providers through a single, unified interface. Built specifically for modern web and mobile applications that need to accept payments quickly and securely.
 
 ## 🚀 Quick Start
 
@@ -56,14 +56,14 @@ bun run dev
 
 ## 🔑 Key Features
 
-- **Multi-Provider Support**: Stripe, PayPal, Authorize.net
-- **Real-time Webhooks**: Automatic event processing with signature validation
-- **Guest Checkout**: Payments without user registration
-- **Session Validation**: Secure integration with Flowless
-- **Auto-Cleanup**: Automatic client_secret management
-- **Flexible Architecture**: Easy to extend with new providers
-- **Type Safety**: Full TypeScript support with Kysely
-- **High Performance**: Built on Bun runtime
+- **🔌 Multi-Provider Support**: Stripe, PayPal (with Venmo & Cards), Authorize.net
+- **🔔 Real-time Webhooks**: Automatic event processing with signature validation
+- **👤 Guest Checkout**: Payments without user registration
+- **🛡️ Session Validation**: Secure integration with Flowless
+- **🧹 Auto-Cleanup**: Automatic client_secret management
+- **🏗️ Flexible Architecture**: Easy to extend with new providers
+- **📝 Type Safety**: Full TypeScript support with Kysely
+- **⚡ High Performance**: Built on Bun runtime
 
 ## 🛡️ Security Features
 

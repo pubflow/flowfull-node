@@ -43,6 +43,7 @@ export class StripeAdapter extends PaymentAdapter {
       supports_webhooks: true,
       supports_subscriptions: true,
       supports_3d_secure: true,
+      supports_manual_capture: true,
       supported_currencies: [
         // Major global currencies
         'USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF', 'SEK', 'NOK', 'DKK',
@@ -79,6 +80,7 @@ export class StripeAdapter extends PaymentAdapter {
       supported_payment_methods: [
         PaymentMethodType.CREDIT_CARD,
         PaymentMethodType.DEBIT_CARD,
+        PaymentMethodType.BANK_ACCOUNT,
         PaymentMethodType.APPLE_PAY,
         PaymentMethodType.GOOGLE_PAY
       ]
@@ -101,6 +103,12 @@ export class StripeAdapter extends PaymentAdapter {
         enabled: true
       }
     };
+
+    // Add authorization/capture support
+    if (request.capture_method === 'manual') {
+      params.capture_method = 'manual';
+      console.log('🔒 Creating payment intent with manual capture (authorization)');
+    }
 
     if (request.customer_id) {
       params.customer = request.customer_id;
@@ -130,6 +138,52 @@ export class StripeAdapter extends PaymentAdapter {
       const paymentIntent = await this.stripe.paymentIntents.retrieve(id);
       return this.mapStripePaymentIntent(paymentIntent);
     } catch (error) {
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async updatePaymentIntent(id: string, updates: Partial<CreatePaymentIntentRequest & { setup_future_usage?: 'on_session' | 'off_session' }>): Promise<PaymentIntent> {
+    console.log('🔄 Updating Stripe payment intent...');
+    console.log('📝 Updates:', updates);
+
+    const params: Stripe.PaymentIntentUpdateParams = {};
+
+    // Only allow updating certain fields
+    if (updates.description !== undefined) {
+      params.description = updates.description;
+    }
+
+    if (updates.metadata !== undefined) {
+      params.metadata = updates.metadata;
+    }
+
+    // Customer can be updated if not already set
+    if (updates.customer_id !== undefined) {
+      params.customer = updates.customer_id;
+    }
+
+    // Amount can be updated
+    if (updates.amount_cents !== undefined) {
+      params.amount = updates.amount_cents;
+    }
+
+    // Currency can be updated
+    if (updates.currency !== undefined) {
+      params.currency = updates.currency.toLowerCase();
+    }
+
+    // setup_future_usage can be added or changed from on_session to off_session
+    if (updates.setup_future_usage !== undefined) {
+      params.setup_future_usage = updates.setup_future_usage;
+      console.log(`🔐 Setting setup_future_usage to: ${updates.setup_future_usage}`);
+    }
+
+    try {
+      const paymentIntent = await this.stripe.paymentIntents.update(id, params);
+      console.log('✅ Payment intent updated successfully');
+      return this.mapStripePaymentIntent(paymentIntent);
+    } catch (error) {
+      console.error('❌ Failed to update payment intent:', error);
       throw this.handleStripeError(error);
     }
   }
@@ -167,6 +221,54 @@ export class StripeAdapter extends PaymentAdapter {
       const paymentIntent = await this.stripe.paymentIntents.cancel(id);
       return this.mapStripePaymentIntent(paymentIntent);
     } catch (error) {
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async capturePaymentIntent(id: string, amount_cents?: number): Promise<PaymentIntent> {
+    console.log('💰 Capturing Stripe payment intent:', id);
+
+    const params: Stripe.PaymentIntentCaptureParams = {};
+
+    if (amount_cents) {
+      params.amount_to_capture = amount_cents;
+      console.log(`💰 Partial capture: ${amount_cents} cents`);
+    } else {
+      console.log('💰 Full capture');
+    }
+
+    try {
+      const paymentIntent = await this.stripe.paymentIntents.capture(id, params);
+
+      // Update metadata to track capture information
+      const captureId = `cap_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+      const updatedMetadata = {
+        ...paymentIntent.metadata,
+        authorization: JSON.stringify({
+          amount_cents: paymentIntent.amount,
+          captured_at: new Date().toISOString(),
+          capture_method: 'manual',
+          provider_auth_id: id
+        }),
+        captures: JSON.stringify([
+          {
+            id: captureId,
+            amount_cents: amount_cents || paymentIntent.amount,
+            captured_at: new Date().toISOString(),
+            provider_capture_id: paymentIntent.id // Use payment intent ID as reference
+          }
+        ])
+      };
+
+      // Update the payment intent with capture metadata
+      await this.stripe.paymentIntents.update(id, {
+        metadata: updatedMetadata
+      });
+
+      const updatedPaymentIntent = await this.stripe.paymentIntents.retrieve(id);
+      return this.mapStripePaymentIntent(updatedPaymentIntent);
+    } catch (error) {
+      console.error('❌ Failed to capture payment intent:', error);
       throw this.handleStripeError(error);
     }
   }
@@ -384,6 +486,9 @@ export class StripeAdapter extends PaymentAdapter {
 
   // Mapping functions
   private mapStripePaymentIntent(pi: Stripe.PaymentIntent): PaymentIntent {
+    // Extract authorization/capture data from metadata
+    const authData = this.extractAuthorizationData(pi);
+
     return {
       id: pi.id,
       client_secret: pi.client_secret || undefined,
@@ -392,8 +497,47 @@ export class StripeAdapter extends PaymentAdapter {
       status: this.mapPaymentIntentStatus(pi.status),
       payment_method_id: pi.payment_method as string || undefined,
       customer_id: pi.customer as string || undefined,
-      metadata: pi.metadata,
-      provider_data: pi
+      metadata: {
+        ...pi.metadata,
+        // Add computed authorization/capture fields for easy access
+        ...authData.computed
+      },
+      provider_data: {
+        ...pi,
+        // Include authorization/capture details
+        authorization_data: authData.authorization,
+        capture_data: authData.captures
+      }
+    };
+  }
+
+  private extractAuthorizationData(pi: Stripe.PaymentIntent) {
+    const authorization = pi.metadata?.authorization ?
+      JSON.parse(pi.metadata.authorization) : null;
+    const captures = pi.metadata?.captures ?
+      JSON.parse(pi.metadata.captures) : [];
+
+    // Calculate totals
+    const totalCaptured = captures.reduce((sum: number, cap: any) => sum + cap.amount_cents, 0);
+    const authorizedAmount = authorization?.amount_cents || pi.amount;
+    const remainingAmount = authorizedAmount - totalCaptured;
+
+    // Determine capture status
+    let captureStatus = 'not_captured';
+    if (totalCaptured > 0) {
+      captureStatus = totalCaptured === authorizedAmount ? 'fully_captured' : 'partially_captured';
+    }
+
+    return {
+      authorization,
+      captures,
+      computed: {
+        authorized_amount_cents: authorizedAmount,
+        captured_amount_cents: totalCaptured,
+        remaining_amount_cents: remainingAmount,
+        capture_method: pi.capture_method || 'automatic',
+        capture_status: captureStatus
+      }
     };
   }
 
@@ -457,16 +601,21 @@ export class StripeAdapter extends PaymentAdapter {
   }
 
   private mapPaymentMethodType(type: PaymentMethodType): Stripe.PaymentMethodCreateParams.Type {
-    const typeMap: Record<PaymentMethodType, Stripe.PaymentMethodCreateParams.Type> = {
+    // Note: Venmo is not supported by Stripe (PayPal exclusive)
+    const typeMap: Partial<Record<PaymentMethodType, Stripe.PaymentMethodCreateParams.Type>> = {
       [PaymentMethodType.CREDIT_CARD]: 'card',
       [PaymentMethodType.DEBIT_CARD]: 'card',
       [PaymentMethodType.BANK_ACCOUNT]: 'us_bank_account',
-      [PaymentMethodType.PAYPAL]: 'paypal',
       [PaymentMethodType.APPLE_PAY]: 'card',
       [PaymentMethodType.GOOGLE_PAY]: 'card'
     };
 
-    return typeMap[type] || 'card';
+    const mappedType = typeMap[type];
+    if (!mappedType) {
+      throw new Error(`Payment method type ${type} is not supported by Stripe`);
+    }
+
+    return mappedType;
   }
 
   private mapStripePaymentMethodType(type: string): PaymentMethodType {

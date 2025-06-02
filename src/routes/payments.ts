@@ -5,16 +5,14 @@ import { randomUUID } from 'crypto';
 import {
   authMiddleware,
   optionalAuthMiddleware,
-  guestCheckoutMiddleware,
   getUserContext,
   validateGuestData,
   checkGuestPaymentLimits
 } from '@/lib/auth/middleware';
 import { getPaymentAdapterWithFailover, getPaymentAdapter } from '@/lib/providers/factory';
-import { getPaymentRepository, getPaymentUserRepository } from '@/lib/database/repositories';
+import { getPaymentRepository } from '@/lib/database/repositories';
 import { PaymentStatus } from '@/lib/database/types';
 import { PaymentIntentStatus } from '@/lib/providers/base/payment-adapter';
-import { config } from '@/config/environment';
 
 // Helper function to map PaymentIntentStatus to PaymentStatus
 function mapPaymentIntentStatus(status: PaymentIntentStatus): PaymentStatus {
@@ -76,6 +74,15 @@ const confirmPaymentIntentSchema = z.object({
   payment_method_id: z.string().optional(),
   return_url: z.string().url().optional(),
   save_payment_method: z.boolean().optional().default(false)
+});
+
+const updatePaymentIntentSchema = z.object({
+  amount_cents: z.number().int().positive().optional(),
+  currency: z.string().length(3).optional(),
+  description: z.string().optional(),
+  setup_future_usage: z.enum(['on_session', 'off_session']).optional(),
+  customer_id: z.string().optional(),
+  metadata: z.record(z.any()).optional()
 });
 
 // Create payment intent (without middleware for testing)
@@ -260,6 +267,108 @@ payments.post('/payments/intents', async (c) => {
     console.error('Create payment intent error:', error);
     throw new HTTPException(500, {
       message: 'Failed to create payment intent'
+    });
+  }
+});
+
+// Update payment intent
+payments.put('/payments/intents/:id', optionalAuthMiddleware, async (c) => {
+  try {
+    const paymentId = c.req.param('id');
+    const body = await c.req.json();
+    const validatedData = updatePaymentIntentSchema.parse(body);
+    const userContext = getUserContext(c);
+
+    console.log('🔄 Updating payment intent:', {
+      paymentId,
+      updates: validatedData,
+      userContext: userContext.isAuthenticated ? 'authenticated' : 'guest'
+    });
+
+    // Get payment from database
+    const paymentRepo = await getPaymentRepository();
+    const payment = await paymentRepo.findById(paymentId);
+
+    if (!payment) {
+      throw new HTTPException(404, {
+        message: 'Payment not found'
+      });
+    }
+
+    // Check authorization
+    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
+      throw new HTTPException(403, {
+        message: 'Access denied'
+      });
+    }
+
+    if (userContext.isGuest && !payment.is_guest_payment) {
+      throw new HTTPException(403, {
+        message: 'Access denied'
+      });
+    }
+
+    // Check if payment can be updated
+    if (![PaymentStatus.PENDING, PaymentStatus.REQUIRES_CONFIRMATION, PaymentStatus.REQUIRES_ACTION].includes(payment.status as PaymentStatus)) {
+      throw new HTTPException(400, {
+        message: 'Payment cannot be updated in current status'
+      });
+    }
+
+    // Get payment adapter
+    const adapter = await getPaymentAdapterWithFailover(payment.provider_id);
+
+    // Update payment intent with provider
+    const updatedIntent = await adapter.updatePaymentIntent(payment.provider_intent_id!, validatedData);
+
+    // Update payment in database if needed
+    let updatedPayment = payment;
+    if (validatedData.amount_cents || validatedData.currency || validatedData.description) {
+      const updateData: any = {};
+
+      if (validatedData.amount_cents) updateData.amount_cents = validatedData.amount_cents;
+      if (validatedData.currency) updateData.currency = validatedData.currency;
+      if (validatedData.description) updateData.description = validatedData.description;
+      if (validatedData.metadata) updateData.metadata = JSON.stringify(validatedData.metadata);
+
+      // Update the payment record
+      const updateResult = await paymentRepo.update(payment.id, {
+        ...updateData,
+        updated_at: new Date().toISOString()
+      });
+
+      if (updateResult) {
+        updatedPayment = updateResult;
+      }
+    }
+
+    return c.json({
+      id: updatedPayment.id,
+      provider_intent_id: updatedIntent.id,
+      client_secret: updatedIntent.client_secret,
+      amount_cents: updatedPayment.amount_cents,
+      currency: updatedPayment.currency,
+      status: updatedPayment.status,
+      provider_id: updatedPayment.provider_id,
+      setup_future_usage_updated: !!validatedData.setup_future_usage,
+      updated_at: updatedPayment.updated_at
+    });
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new HTTPException(400, {
+        message: 'Validation failed',
+        cause: error.errors
+      });
+    }
+
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    console.error('Update payment intent error:', error);
+    throw new HTTPException(500, {
+      message: 'Failed to update payment intent'
     });
   }
 });
@@ -649,6 +758,101 @@ payments.post('/payments/:id/cancel', optionalAuthMiddleware, async (c) => {
     console.error('Cancel payment error:', error);
     throw new HTTPException(500, {
       message: 'Failed to cancel payment'
+    });
+  }
+});
+
+// Capture payment intent (for manual capture/authorization)
+payments.post('/payments/:id/capture', optionalAuthMiddleware, async (c) => {
+  try {
+    const paymentId = c.req.param('id');
+    const userContext = getUserContext(c);
+
+    // Parse request body for optional amount
+    const body = await c.req.json().catch(() => ({}));
+    const { amount_cents } = body;
+
+    const paymentRepo = await getPaymentRepository();
+    const payment = await paymentRepo.findById(paymentId);
+
+    if (!payment) {
+      throw new HTTPException(404, {
+        message: 'Payment not found'
+      });
+    }
+
+    // Check authorization
+    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
+      throw new HTTPException(403, {
+        message: 'Access denied'
+      });
+    }
+
+    if (userContext.isGuest && !payment.is_guest_payment) {
+      throw new HTTPException(403, {
+        message: 'Access denied'
+      });
+    }
+
+    // Check if payment is in a capturable state
+    if (!['authorized', 'requires_capture'].includes(payment.status)) {
+      throw new HTTPException(400, {
+        message: `Payment cannot be captured. Current status: ${payment.status}`
+      });
+    }
+
+    const adapter = await getPaymentAdapterWithFailover(payment.provider_id);
+
+    // Check if provider supports manual capture
+    const capabilities = adapter.getCapabilities();
+    if (!capabilities.supports_manual_capture) {
+      throw new HTTPException(400, {
+        message: `Provider ${payment.provider_id} does not support manual capture`
+      });
+    }
+
+    const capturedPayment = await adapter.capturePaymentIntent(
+      payment.provider_intent_id || paymentId,
+      amount_cents
+    );
+
+    // Update payment in database with capture information
+    const mappedStatus = mapPaymentIntentStatus(capturedPayment.status);
+    const updateData: any = {
+      status: mappedStatus,
+      metadata: JSON.stringify(capturedPayment.metadata),
+      updated_at: new Date().toISOString()
+    };
+
+    if (mappedStatus === PaymentStatus.SUCCEEDED) {
+      updateData.completed_at = new Date().toISOString();
+    }
+
+    const updatedPayment = await paymentRepo.update(paymentId, updateData);
+
+    console.log('✅ Payment captured successfully:', paymentId);
+
+    return c.json({
+      id: updatedPayment!.id,
+      status: updatedPayment!.status,
+      amount_cents: payment.amount_cents,
+      currency: payment.currency,
+      // Include computed authorization/capture fields for easy access
+      authorized_amount_cents: capturedPayment.metadata?.authorized_amount_cents,
+      captured_amount_cents: capturedPayment.metadata?.captured_amount_cents,
+      remaining_amount_cents: capturedPayment.metadata?.remaining_amount_cents,
+      capture_status: capturedPayment.metadata?.capture_status,
+      updated_at: updatedPayment!.updated_at,
+      completed_at: updatedPayment!.completed_at
+    });
+  } catch (error) {
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    console.error('❌ Error capturing payment:', error);
+    throw new HTTPException(500, {
+      message: error instanceof Error ? error.message : 'Failed to capture payment'
     });
   }
 });

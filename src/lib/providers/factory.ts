@@ -1,5 +1,6 @@
 import { PaymentAdapter, PaymentAdapterConfig } from './base/payment-adapter';
 import { StripeAdapter } from './stripe/stripe-adapter';
+import { PayPalAdapter } from './paypal/paypal-adapter';
 import { config } from '@/config/environment';
 
 // Provider registry
@@ -7,9 +8,9 @@ const providerRegistry = new Map<string, typeof PaymentAdapter>();
 
 // Register providers
 providerRegistry.set('stripe', StripeAdapter as any);
+providerRegistry.set('paypal', PayPalAdapter as any);
 
 // TODO: Add other providers
-// providerRegistry.set('paypal', PayPalAdapter as any);
 // providerRegistry.set('authorize_net', AuthorizeNetAdapter as any);
 
 export interface ProviderConfig {

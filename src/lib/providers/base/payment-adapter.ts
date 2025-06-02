@@ -70,6 +70,7 @@ export enum PaymentMethodType {
   DEBIT_CARD = 'debit_card',
   BANK_ACCOUNT = 'bank_account',
   PAYPAL = 'paypal',
+  VENMO = 'venmo',
   APPLE_PAY = 'apple_pay',
   GOOGLE_PAY = 'google_pay'
 }
@@ -79,10 +80,13 @@ export interface CreatePaymentIntentRequest {
   currency: string;
   customer_id?: string;
   payment_method_id?: string;
+  payment_method_type?: PaymentMethodType;
   description?: string;
   metadata?: Record<string, any>;
   confirm?: boolean;
+  capture_method?: 'automatic' | 'manual';
   return_url?: string;
+  cancel_url?: string;
   billing_details?: BillingDetails;
 }
 
@@ -116,6 +120,7 @@ export interface CreatePaymentMethodRequest {
 export interface RefundRequest {
   payment_intent_id: string;
   amount_cents?: number; // If not provided, refund full amount
+  currency?: string;
   reason?: string;
   metadata?: Record<string, any>;
 }
@@ -146,6 +151,7 @@ export interface PaymentAdapterCapabilities {
   supports_webhooks: boolean;
   supports_subscriptions: boolean;
   supports_3d_secure: boolean;
+  supports_manual_capture: boolean;
   supported_currencies: string[];
   supported_payment_methods: PaymentMethodType[];
 }
@@ -160,11 +166,17 @@ export abstract class PaymentAdapter {
   }
 
   // Abstract methods that must be implemented by each provider
-  abstract getCapabilities(): PaymentAdapterCapabilities;
   abstract createPaymentIntent(request: CreatePaymentIntentRequest): Promise<PaymentIntent>;
   abstract getPaymentIntent(id: string): Promise<PaymentIntent>;
+  abstract updatePaymentIntent(id: string, updates: Partial<CreatePaymentIntentRequest>): Promise<PaymentIntent>;
   abstract confirmPaymentIntent(request: ConfirmPaymentIntentRequest): Promise<PaymentIntent>;
   abstract cancelPaymentIntent(id: string): Promise<PaymentIntent>;
+  abstract getCapabilities(): PaymentAdapterCapabilities;
+
+  // Optional method for authorization/capture support
+  async capturePaymentIntent(id: string, amount_cents?: number): Promise<PaymentIntent> {
+    throw new Error(`${this.config.provider_id} does not support manual capture`);
+  }
 
   // Optional methods with default implementations
   async createCustomer(request: CreateCustomerRequest): Promise<Customer> {
@@ -222,10 +234,6 @@ export abstract class PaymentAdapter {
   // Utility methods
   getProviderId(): string {
     return this.config.provider_id;
-  }
-
-  getCapabilities(): PaymentAdapterCapabilities {
-    return this.capabilities;
   }
 
   supportsFeature(feature: keyof PaymentAdapterCapabilities): boolean {

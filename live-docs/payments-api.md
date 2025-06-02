@@ -16,14 +16,24 @@ https://your-api-domain.com/bridge-payment
 ## Payment Flow
 
 1. **Create Payment Intent**: Initialize payment with amount and currency
-2. **Confirm Payment Intent**: Complete payment with payment method
-3. **Handle Results**: Process success, failure, or required actions
+2. **Update Payment Intent** (Optional): Modify properties like `setup_future_usage` to save payment methods
+3. **Confirm Payment Intent**: Complete payment with payment method
+4. **Handle Results**: Process success, failure, or required actions
+
+### Enhanced Flow for Saving Payment Methods
+
+1. **Create Payment Intent**: Start without `setup_future_usage` for better UX
+2. **User Interaction**: Show "Save payment method" checkbox in frontend
+3. **Update Payment Intent**: If user checks "save", update with `setup_future_usage: "off_session"`
+4. **Confirm Payment**: Complete payment - Stripe automatically saves the method
+5. **Success**: Payment processed and method saved for future use
 
 ## Endpoints Overview
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | POST | `/payments/intents` | Create payment intent | Optional |
+| PUT | `/payments/intents/:id` | Update payment intent | Optional |
 | POST | `/payments/intents/:id/confirm` | Confirm payment intent | Optional |
 | GET | `/payments/:id` | Get payment by ID | Optional |
 | GET | `/payments` | List user payments | Yes |
@@ -58,6 +68,7 @@ Content-Type: application/json
 | `provider_id` | string | Yes | Payment provider (e.g., "stripe") |
 | `payment_method_id` | string | No | Existing payment method ID |
 | `return_url` | string | No | URL to redirect after payment |
+| `setup_future_usage` | string | No | Set to "off_session" to save payment method for future use |
 | `metadata` | object | No | Additional metadata |
 | `guest_data` | object | No* | Guest customer data (*required for guests) |
 | `guest_data.email` | string | Yes | Guest email address |
@@ -123,6 +134,170 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
       "product_id": "prod_789"
     }
   }'
+```
+
+#### Payment with Save Method (setup_future_usage)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount_cents": 2000,
+    "currency": "USD",
+    "description": "Subscription with saved payment method",
+    "provider_id": "stripe",
+    "setup_future_usage": "off_session",
+    "metadata": {
+      "subscription_id": "sub_123",
+      "save_payment_method": true
+    }
+  }'
+```
+
+---
+
+## Update Payment Intent
+
+Update an existing payment intent to modify its properties. This is useful for adding `setup_future_usage` to save payment methods, updating amounts, or modifying metadata without creating a new payment intent.
+
+### Request
+
+```http
+PUT /bridge-payment/payments/intents/{id}
+```
+
+#### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | Payment intent ID |
+
+#### Headers
+
+```http
+Authorization: Bearer <token>  # Optional for authenticated users
+Content-Type: application/json
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `amount_cents` | number | No | Updated payment amount in cents |
+| `currency` | string | No | Updated 3-letter currency code |
+| `description` | string | No | Updated payment description |
+| `setup_future_usage` | string | No | Set to "off_session" to save payment method |
+| `customer_id` | string | No | Associate with customer (if not already set) |
+| `metadata` | object | No | Updated metadata |
+
+#### Important Notes
+
+- **setup_future_usage**: Can be added or changed from "on_session" to "off_session", but cannot be removed once set
+- **Amount/Currency**: Can only be updated if payment is in `pending`, `requires_confirmation`, or `requires_action` status
+- **Customer**: Can only be set if not already associated with a customer
+- **Authorization**: Must be the payment owner (authenticated user) or the payment must be a guest payment
+
+### Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+```
+
+```json
+{
+  "id": "pay_1234567890",
+  "provider_intent_id": "pi_1234567890abcdef",
+  "client_secret": "pi_1234567890abcdef_secret_xyz",
+  "amount_cents": 2500,
+  "currency": "USD",
+  "status": "requires_confirmation",
+  "provider_id": "stripe",
+  "setup_future_usage_updated": true,
+  "updated_at": "2025-01-15T10:32:00Z"
+}
+```
+
+### Examples
+
+#### Add Setup Future Usage (Save Payment Method)
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payments/intents/pay_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "setup_future_usage": "off_session",
+    "metadata": {
+      "save_payment_method": true,
+      "updated_reason": "user_requested_save"
+    }
+  }'
+```
+
+#### Update Amount and Description
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payments/intents/pay_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount_cents": 2500,
+    "description": "Updated premium subscription with tax",
+    "metadata": {
+      "tax_included": true,
+      "tax_amount": 500
+    }
+  }'
+```
+
+#### Guest Payment Update
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payments/intents/pay_guest_123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "setup_future_usage": "off_session",
+    "metadata": {
+      "guest_wants_to_save": true,
+      "create_account_later": true
+    }
+  }'
+```
+
+### Error Responses
+
+#### Payment Cannot Be Updated
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Payment cannot be updated",
+  "message": "Payment cannot be updated in current status",
+  "timestamp": "2025-01-15T18:00:00Z",
+  "details": {
+    "current_status": "succeeded",
+    "allowed_statuses": ["pending", "requires_confirmation", "requires_action"]
+  }
+}
+```
+
+#### Invalid Setup Future Usage
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Invalid setup_future_usage",
+  "message": "Cannot change setup_future_usage from off_session to on_session",
+  "timestamp": "2025-01-15T18:00:00Z",
+  "details": {
+    "current_value": "off_session",
+    "requested_value": "on_session"
+  }
+}
 ```
 
 ---
@@ -702,3 +877,174 @@ X-RateLimit-Limit: 1000
 X-RateLimit-Remaining: 999
 X-RateLimit-Reset: 1642694400
 ```
+
+---
+
+## Best Practices
+
+### Payment Intent Management
+
+#### 1. **Efficient setup_future_usage Handling**
+
+**✅ Recommended Approach:**
+```bash
+# Step 1: Create PaymentIntent without setup_future_usage
+curl -X POST "/bridge-payment/payments/intents" \
+  -d '{"amount_cents": 2000, "currency": "USD", "provider_id": "stripe"}'
+
+# Step 2: If user wants to save method, update PaymentIntent
+curl -X PUT "/bridge-payment/payments/intents/pay_123" \
+  -d '{"setup_future_usage": "off_session"}'
+
+# Step 3: Confirm payment (setup_future_usage already configured)
+curl -X POST "/bridge-payment/payments/intents/pay_123/confirm" \
+  -d '{"payment_method_id": "pm_456"}'
+```
+
+**❌ Avoid:**
+```bash
+# Don't pass setup_future_usage in confirm (will cause Stripe error)
+curl -X POST "/bridge-payment/payments/intents/pay_123/confirm" \
+  -d '{"payment_method_id": "pm_456", "save_payment_method": true}'
+```
+
+#### 2. **Frontend Integration Pattern**
+
+```javascript
+// 1. Create PaymentIntent initially
+const paymentIntent = await createPaymentIntent({
+  amount_cents: 2000,
+  currency: 'USD',
+  provider_id: 'stripe'
+});
+
+// 2. Show Payment Element with client_secret
+const elements = stripe.elements({ clientSecret: paymentIntent.client_secret });
+
+// 3. When user checks "Save payment method"
+const handleSaveMethodChange = async (shouldSave) => {
+  if (shouldSave) {
+    await updatePaymentIntent(paymentIntent.id, {
+      setup_future_usage: 'off_session'
+    });
+    // No need to recreate Elements - client_secret stays the same
+  }
+};
+
+// 4. Confirm payment normally
+await stripe.confirmPayment({ elements });
+```
+
+#### 3. **Error Handling**
+
+```javascript
+try {
+  // Try to update PaymentIntent
+  await updatePaymentIntent(paymentIntentId, { setup_future_usage: 'off_session' });
+} catch (error) {
+  if (error.status === 400 && error.message.includes('cannot be updated')) {
+    // Payment already in final state - proceed with confirmation
+    console.warn('Payment already processed, skipping update');
+  } else {
+    // Handle other errors
+    throw error;
+  }
+}
+```
+
+### Security Considerations
+
+#### 1. **Guest Payment Authorization**
+- Always validate guest data on the server side
+- Use rate limiting for guest payments to prevent abuse
+- Consider implementing CAPTCHA for high-value guest payments
+
+#### 2. **Payment Intent Updates**
+- Only allow updates in valid states (`pending`, `requires_confirmation`, `requires_action`)
+- Validate that the user owns the payment intent before allowing updates
+- Log all payment intent modifications for audit purposes
+
+#### 3. **Metadata Usage**
+- Use metadata to track business logic (order IDs, customer preferences)
+- Don't store sensitive information in metadata
+- Keep metadata size reasonable (< 1KB per payment)
+
+### Performance Optimization
+
+#### 1. **Minimize API Calls**
+- Create PaymentIntent once, update only when necessary
+- Use webhooks for status updates instead of polling
+- Cache customer and payment method data when possible
+
+#### 2. **Frontend Optimization**
+- Initialize Payment Element early in the checkout flow
+- Update PaymentIntent asynchronously when user changes options
+- Show loading states during updates to improve perceived performance
+
+#### 3. **Error Recovery**
+- Implement retry logic for network failures
+- Provide clear error messages to users
+- Have fallback flows for payment failures
+
+### Integration Examples
+
+#### React/Next.js Integration
+```javascript
+import { useState, useEffect } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement } from '@stripe/react-stripe-js';
+
+function PaymentForm({ amount, onSuccess }) {
+  const [paymentIntentId, setPaymentIntentId] = useState(null);
+  const [clientSecret, setClientSecret] = useState(null);
+  const [saveMethod, setSaveMethod] = useState(false);
+
+  // Create PaymentIntent on mount
+  useEffect(() => {
+    createPaymentIntent({ amount_cents: amount * 100 })
+      .then(intent => {
+        setPaymentIntentId(intent.id);
+        setClientSecret(intent.client_secret);
+      });
+  }, [amount]);
+
+  // Update PaymentIntent when save option changes
+  useEffect(() => {
+    if (paymentIntentId && saveMethod) {
+      updatePaymentIntent(paymentIntentId, {
+        setup_future_usage: 'off_session'
+      });
+    }
+  }, [paymentIntentId, saveMethod]);
+
+  return (
+    <Elements stripe={stripe} options={{ clientSecret }}>
+      <PaymentElement />
+      <label>
+        <input
+          type="checkbox"
+          checked={saveMethod}
+          onChange={(e) => setSaveMethod(e.target.checked)}
+        />
+        Save payment method for future use
+      </label>
+      <button onClick={handleSubmit}>Pay ${amount}</button>
+    </Elements>
+  );
+}
+```
+
+---
+
+## Support
+
+For technical support or questions about the Payments API:
+
+- **Documentation**: [Bridge Payments Docs](https://docs.bridge-payments.com)
+- **API Status**: [Status Page](https://status.bridge-payments.com)
+- **Support Email**: support@bridge-payments.com
+- **Developer Discord**: [Join Community](https://discord.gg/bridge-payments)
+
+---
+
+*Last updated: January 15, 2025*

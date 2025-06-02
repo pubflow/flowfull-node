@@ -6,9 +6,28 @@ Bridge-Payments supports multiple payment providers through a unified adapter sy
 
 | Provider | Status | Payment Types | Subscriptions | Saved Methods | Guest Checkout |
 |----------|--------|---------------|---------------|---------------|----------------|
-| **Stripe** | ✅ Active | Cards, Wallets, Bank | ✅ Yes | ✅ Yes | ✅ Yes |
-| **PayPal** | ✅ Active | PayPal, Cards | ✅ Yes | ❌ No | ✅ Yes |
-| **Authorize.net** | ✅ Active | Cards, ACH | ❌ No | ✅ Yes | ✅ Yes |
+| **Stripe** | ✅ Active | Cards, Apple Pay, Google Pay, Bank | ✅ Yes | ✅ Yes | ✅ Yes |
+| **PayPal** | ✅ Active | PayPal, Venmo, Cards via PayPal | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Authorize.net** | 🚧 Planned | Cards, ACH | ❌ No | ✅ Yes | ✅ Yes |
+
+## Payment Method Support by Provider
+
+| Payment Method | Stripe | PayPal | Notes |
+|---------------|--------|--------|-------|
+| **Credit Cards** | ✅ Direct | ✅ Via PayPal | Visa, MC, Amex, Discover |
+| **Debit Cards** | ✅ Direct | ✅ Via PayPal | Same as credit cards |
+| **PayPal Account** | ❌ No | ✅ Native | PayPal balance, linked accounts |
+| **Venmo** | ❌ No | ✅ Native | US only, mobile-first |
+| **Apple Pay** | ✅ Native | ✅ Via PayPal | iOS devices |
+| **Google Pay** | ✅ Native | ✅ Via PayPal | Android devices |
+| **Bank Transfers** | ✅ ACH (US) | ✅ Via PayPal | Direct bank account |
+| **PayPal Credit** | ❌ No | ✅ Native | Buy now, pay later |
+
+### Key Differences
+
+- **Stripe**: Direct card processing, excellent for traditional e-commerce
+- **PayPal**: Wallet-first approach, great for marketplaces and international
+- **Venmo**: PayPal exclusive, popular with US millennials/Gen Z
 
 ## Provider Architecture
 
