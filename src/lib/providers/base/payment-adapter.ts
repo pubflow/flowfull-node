@@ -114,6 +114,13 @@ export interface CreatePaymentMethodRequest {
     exp_year: number;
     cvc: string;
   };
+  bank_account?: {
+    account_type: 'checking' | 'savings' | 'businessChecking';
+    routing_number: string;
+    account_number: string;
+    account_holder_name: string;
+    bank_name?: string;
+  };
   billing_details?: BillingDetails;
 }
 
@@ -127,10 +134,12 @@ export interface RefundRequest {
 
 export interface RefundResponse {
   id: string;
+  payment_intent_id: string;
   amount_cents: number;
   currency: string;
   status: string;
   reason?: string;
+  created_at: string;
   provider_data?: any;
 }
 

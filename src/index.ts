@@ -19,6 +19,7 @@ import subscriptionRoutes from '@/routes/subscriptions';
 import guestConversionRoutes from '@/routes/guest-conversion';
 import renewalWebhookRoutes from '@/routes/webhooks/renewals';
 import adminRenewalRoutes from '@/routes/admin/renewals';
+import adminRoutes from './routes/admin.js';
 
 // Create Hono app
 const app = new Hono();
@@ -117,6 +118,7 @@ app.route('/bridge-payment/addresses', addressRoutes);
 app.route('/bridge-payment/subscriptions', subscriptionRoutes);
 app.route('/bridge-payment/guest', guestConversionRoutes);
 app.route('/bridge-payment/admin/renewals', adminRenewalRoutes);
+app.route('/bridge-payment/admin', adminRoutes);
 
 // Root endpoint
 app.get('/', (c) => {
@@ -135,7 +137,8 @@ app.get('/', (c) => {
       guest_conversion: '/bridge-payment/guest',
       webhooks: '/bridge-payment/webhooks',
       renewal_webhooks: '/bridge-payment/webhooks/renewals',
-      admin_renewals: '/bridge-payment/admin/renewals'
+      admin_renewals: '/bridge-payment/admin/renewals',
+      admin: '/bridge-payment/admin'
     }
   });
 });

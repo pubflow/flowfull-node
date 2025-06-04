@@ -298,4 +298,118 @@ export class PaymentRepository extends BaseRepository<'payments'> {
       .limit(limit)
       .execute();
   }
+
+  // Find recent payments (for debugging)
+  async findRecent(limit = 10): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Find payments with filters and pagination
+  async findWithFilters(
+    filters: {
+      user_id?: string;
+      status?: string;
+      provider_id?: string;
+      search?: string;
+    },
+    pagination: {
+      page: number;
+      limit: number;
+    }
+  ): Promise<{ payments: PaymentTable[]; total: number }> {
+    let query = this.db.selectFrom('payments').selectAll();
+
+    // Apply filters
+    if (filters.user_id) {
+      query = query.where('user_id', '=', filters.user_id);
+    }
+    if (filters.status) {
+      query = query.where('status', '=', filters.status);
+    }
+    if (filters.provider_id) {
+      query = query.where('provider_id', '=', filters.provider_id);
+    }
+    if (filters.search) {
+      // Search in payment ID, guest email, or description
+      query = query.where((eb) =>
+        eb.or([
+          eb('id', 'like', `%${filters.search}%`),
+          eb('guest_email', 'like', `%${filters.search}%`),
+          eb('description', 'like', `%${filters.search}%`)
+        ])
+      );
+    }
+
+    // Get total count
+    const totalQuery = query.select((eb) => eb.fn.count('id').as('count'));
+    const totalResult = await totalQuery.executeTakeFirst();
+    const total = Number(totalResult?.count || 0);
+
+    // Apply pagination
+    const offset = (pagination.page - 1) * pagination.limit;
+    const payments = await query
+      .orderBy('created_at', 'desc')
+      .limit(pagination.limit)
+      .offset(offset)
+      .execute();
+
+    return { payments, total };
+  }
+
+  // Count payments by status
+  async countByStatus(status?: string): Promise<number> {
+    let query = this.db.selectFrom('payments').select((eb) => eb.fn.count('id').as('count'));
+
+    if (status) {
+      query = query.where('status', '=', status);
+    }
+
+    const result = await query.executeTakeFirst();
+    return Number(result?.count || 0);
+  }
+
+  // Get total revenue
+  async getTotalRevenue(): Promise<number> {
+    const result = await this.db
+      .selectFrom('payments')
+      .select((eb) => eb.fn.sum('amount_cents').as('total'))
+      .where('status', '=', 'completed')
+      .executeTakeFirst();
+
+    return Number(result?.total || 0);
+  }
+
+  // Get provider statistics
+  async getProviderStats(): Promise<Array<{ provider_id: string; count: number; total_amount: number }>> {
+    const results = await this.db
+      .selectFrom('payments')
+      .select([
+        'provider_id',
+        (eb) => eb.fn.count('id').as('count'),
+        (eb) => eb.fn.sum('amount_cents').as('total_amount')
+      ])
+      .groupBy('provider_id')
+      .execute();
+
+    return results.map(r => ({
+      provider_id: r.provider_id,
+      count: Number(r.count),
+      total_amount: Number(r.total_amount || 0)
+    }));
+  }
+
+  // Health check
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.db.selectFrom('payments').select('id').limit(1).execute();
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
