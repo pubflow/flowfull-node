@@ -3,13 +3,12 @@ import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import {
-  authMiddleware,
-  optionalAuthMiddleware,
   getUserContext,
   validateGuestData,
   checkGuestPaymentLimits
 } from '@/lib/auth/middleware';
 import { optionalAuth } from '../lib/auth/auth-middleware.js';
+import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter.js';
 import { getPaymentAdapterWithFailover, getPaymentAdapter } from '@/lib/providers/factory';
 import { getPaymentRepository } from '../lib/database/repositories/index.js';
 import { PaymentStatus } from '@/lib/database/types';
@@ -273,17 +272,17 @@ payments.post('/payments/intents', async (c) => {
 });
 
 // Update payment intent
-payments.put('/payments/intents/:id', optionalAuthMiddleware, async (c) => {
+payments.put('/payments/intents/:id', optionalAuth(), async (c) => {
   try {
     const paymentId = c.req.param('id');
     const body = await c.req.json();
     const validatedData = updatePaymentIntentSchema.parse(body);
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     console.log('🔄 Updating payment intent:', {
       paymentId,
       updates: validatedData,
-      userContext: userContext.isAuthenticated ? 'authenticated' : 'guest'
+      userContext: user ? `authenticated (${user.userType})` : 'anonymous'
     });
 
     // Get payment from database
@@ -297,16 +296,20 @@ payments.put('/payments/intents/:id', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    if (userContext.isGuest && !payment.is_guest_payment) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
+    if (user) {
+      // Authenticated user - check ownership (admin can access all)
+      if (user.userType !== 'admin' && payment.user_id !== user.id) {
+        throw new HTTPException(403, {
+          message: 'Access denied: insufficient privileges for this payment'
+        });
+      }
+    } else {
+      // Anonymous user - can only access guest payments
+      if (!payment.is_guest_payment) {
+        throw new HTTPException(403, {
+          message: 'Access denied: authentication required for this payment'
+        });
+      }
     }
 
     // Check if payment can be updated
@@ -375,17 +378,20 @@ payments.put('/payments/intents/:id', optionalAuthMiddleware, async (c) => {
 });
 
 // Confirm payment intent
-payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c) => {
+payments.post('/payments/intents/:id/confirm', optionalAuth(), async (c) => {
   try {
     const paymentId = c.req.param('id');
     const body = await c.req.json();
     const validatedData = confirmPaymentIntentSchema.parse(body);
+    const user = c.get('user');
+
+    // Get user context for backward compatibility
     const userContext = getUserContext(c);
 
     console.log('🔍 Confirming payment intent:', {
       paymentId,
       savePaymentMethod: validatedData.save_payment_method,
-      userContext: userContext.isAuthenticated ? 'authenticated' : 'guest'
+      userContext: user ? `authenticated (${user.userType})` : 'guest'
     });
 
     // Get payment from database
@@ -398,17 +404,21 @@ payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c)
       });
     }
 
-    // Check authorization
-    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    if (userContext.isGuest && !payment.is_guest_payment) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
+    // Check authorization using new system
+    if (user) {
+      // Authenticated user - check ownership (admin can access all)
+      if (user.userType !== 'admin' && payment.user_id !== user.id) {
+        throw new HTTPException(403, {
+          message: 'Access denied: insufficient privileges for this payment'
+        });
+      }
+    } else {
+      // Anonymous user - can only access guest payments
+      if (!payment.is_guest_payment) {
+        throw new HTTPException(403, {
+          message: 'Access denied: authentication required for this payment'
+        });
+      }
     }
 
     // Get payment adapter
@@ -606,105 +616,14 @@ payments.post('/payments/intents/:id/confirm', optionalAuthMiddleware, async (c)
   }
 });
 
-// Get payment by ID
-payments.get('/payments/:id', optionalAuthMiddleware, async (c) => {
-  try {
-    const paymentId = c.req.param('id');
-    const userContext = getUserContext(c);
 
-    const paymentRepo = await getPaymentRepository();
-    const payment = await paymentRepo.findById(paymentId);
 
-    if (!payment) {
-      throw new HTTPException(404, {
-        message: 'Payment not found'
-      });
-    }
-
-    // Check authorization
-    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    if (userContext.isGuest && !payment.is_guest_payment) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    // Don't expose sensitive data
-    const response = {
-      id: payment.id,
-      amount_cents: payment.amount_cents,
-      currency: payment.currency,
-      status: payment.status,
-      description: payment.description,
-      provider_id: payment.provider_id,
-      is_guest_payment: payment.is_guest_payment,
-      metadata: payment.metadata ? JSON.parse(payment.metadata) : null,
-      created_at: payment.created_at,
-      updated_at: payment.updated_at,
-      completed_at: payment.completed_at
-    };
-
-    return c.json(response);
-
-  } catch (error) {
-    if (error instanceof HTTPException) {
-      throw error;
-    }
-
-    console.error('Get payment error:', error);
-    throw new HTTPException(500, {
-      message: 'Failed to retrieve payment'
-    });
-  }
-});
-
-// List user payments
-payments.get('/payments', authMiddleware, async (c) => {
-  try {
-    const userId = c.get('user_id');
-    const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-    const offset = parseInt(c.req.query('offset') || '0');
-
-    const paymentRepo = await getPaymentRepository();
-    const payments = await paymentRepo.findByUserId(userId, limit);
-
-    const response = payments.map(payment => ({
-      id: payment.id,
-      amount_cents: payment.amount_cents,
-      currency: payment.currency,
-      status: payment.status,
-      description: payment.description,
-      provider_id: payment.provider_id,
-      metadata: payment.metadata ? JSON.parse(payment.metadata) : null,
-      created_at: payment.created_at,
-      completed_at: payment.completed_at
-    }));
-
-    return c.json({
-      payments: response,
-      limit,
-      offset,
-      total: response.length
-    });
-
-  } catch (error) {
-    console.error('List payments error:', error);
-    throw new HTTPException(500, {
-      message: 'Failed to retrieve payments'
-    });
-  }
-});
 
 // Cancel payment intent
-payments.post('/payments/:id/cancel', optionalAuthMiddleware, async (c) => {
+payments.post('/payments/:id/cancel', optionalAuth(), async (c) => {
   try {
     const paymentId = c.req.param('id');
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     const paymentRepo = await getPaymentRepository();
     const payment = await paymentRepo.findById(paymentId);
@@ -716,16 +635,20 @@ payments.post('/payments/:id/cancel', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    if (userContext.isGuest && !payment.is_guest_payment) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
+    if (user) {
+      // Authenticated user - check ownership (admin can access all)
+      if (user.userType !== 'admin' && payment.user_id !== user.id) {
+        throw new HTTPException(403, {
+          message: 'Access denied: insufficient privileges for this payment'
+        });
+      }
+    } else {
+      // Anonymous user - can only access guest payments
+      if (!payment.is_guest_payment) {
+        throw new HTTPException(403, {
+          message: 'Access denied: authentication required for this payment'
+        });
+      }
     }
 
     // Check if payment can be cancelled
@@ -764,10 +687,10 @@ payments.post('/payments/:id/cancel', optionalAuthMiddleware, async (c) => {
 });
 
 // Capture payment intent (for manual capture/authorization)
-payments.post('/payments/:id/capture', optionalAuthMiddleware, async (c) => {
+payments.post('/payments/:id/capture', optionalAuth(), async (c) => {
   try {
     const paymentId = c.req.param('id');
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     // Parse request body for optional amount
     const body = await c.req.json().catch(() => ({}));
@@ -783,16 +706,20 @@ payments.post('/payments/:id/capture', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && payment.user_id !== userContext.userId) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
-    }
-
-    if (userContext.isGuest && !payment.is_guest_payment) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
+    if (user) {
+      // Authenticated user - check ownership (admin can access all)
+      if (user.userType !== 'admin' && payment.user_id !== user.id) {
+        throw new HTTPException(403, {
+          message: 'Access denied: insufficient privileges for this payment'
+        });
+      }
+    } else {
+      // Anonymous user - can only access guest payments
+      if (!payment.is_guest_payment) {
+        throw new HTTPException(403, {
+          message: 'Access denied: authentication required for this payment'
+        });
+      }
     }
 
     // Check if payment is in a capturable state
@@ -862,71 +789,198 @@ payments.post('/payments/:id/capture', optionalAuthMiddleware, async (c) => {
 payments.get('/payments', optionalAuth(), async (c) => {
   try {
     const user = c.get('user');
+    const token = c.req.query('token'); // Get token from query parameter
 
-    // Parse query parameters
-    const page = parseInt(c.req.query('page') || '1');
-    const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50); // Max 50 for users
+    // Parse and validate query parameters
+    const { page, limit } = validatePaginationParams(
+      c.req.query('page'),
+      c.req.query('limit'),
+      50 // Max 50 for users
+    );
+
     const status = c.req.query('status');
+    const search = c.req.query('search');
+    const created_at_from = c.req.query('created_at_from');
+    const created_at_to = c.req.query('created_at_to');
 
-    console.log(`💳 Payments list requested by: ${user ? `${user.id} (${user.userType})` : 'anonymous'}`);
+    const { orderBy, orderDir } = validateOrderParams(
+      c.req.query('orderBy'),
+      c.req.query('orderDir'),
+      ['created_at', 'amount_cents', 'status', 'updated_at']
+    );
+
+    console.log(`💳 Payments list requested by: ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
 
     const paymentRepo = await getPaymentRepository();
 
     if (user) {
-      // Authenticated user - show their payments
-      const filters = {
-        user_id: user.id,
-        status: status || undefined
-      };
+      // Authenticated user - different logic for guest vs regular users
+      let userPayments: any[] = [];
+      let total = 0;
 
-      const { payments: userPayments, total } = await paymentRepo.findWithFilters(filters, {
-        page,
-        limit
-      });
+      if (user.userType === 'guest' && user.email) {
+        // Guest user with token - search by guest_email using optimized query
+        console.log(`🔍 Guest user authenticated with token:`);
+        console.log(`   - User ID: ${user.id}`);
+        console.log(`   - Email: ${user.email}`);
+        console.log(`   - User Type: ${user.userType}`);
+        console.log(`   - Searching payments by guest_email: ${user.email}`);
 
-      return c.json({
-        success: true,
-        data: {
-          payments: userPayments.map(p => ({
-            id: p.id,
-            amount_cents: p.amount_cents,
-            currency: p.currency,
-            status: p.status,
-            description: p.description,
-            provider_id: p.provider_id,
-            created_at: p.created_at,
-            updated_at: p.updated_at,
-            completed_at: p.completed_at
-            // Don't expose sensitive data like client_secret
-          })),
-          pagination: {
+        // Use optimized query with filters
+        const result = await paymentRepo.findGuestPaymentsWithFilters(
+          user.email,
+          {
+            status,
+            search,
+            created_at_from,
+            created_at_to
+          },
+          {
             page,
             limit,
-            total,
-            pages: Math.ceil(total / limit)
-          },
-          user_context: {
-            authenticated: true,
-            user_id: user.id,
-            user_type: user.userType
+            orderBy,
+            orderDir
           }
+        );
+
+        userPayments = result.payments;
+        total = result.total;
+
+        console.log(`✅ Found ${userPayments.length} guest payments for email: ${user.email} (total: ${total})`);
+
+        if (userPayments.length === 0) {
+          console.log(`🔍 No payments found, checking all guest payments in database...`);
+          const allGuestPayments = await paymentRepo.findRecent(50);
+          const guestOnly = allGuestPayments.filter(p => p.is_guest_payment);
+          console.log(`📊 Total guest payments in DB: ${guestOnly.length}`);
+          guestOnly.forEach(p => {
+            console.log(`   - Payment ${p.id}: guest_email="${p.guest_email}"`);
+          });
+        }
+      } else {
+        // Regular authenticated user - search by user_id (mantener lógica actual)
+        console.log(`🔍 Regular user authenticated, searching payments by user_id: ${user.id}`);
+        const filters = {
+          user_id: user.id,
+          status: status || undefined
+        };
+
+        const result = await paymentRepo.findWithFilters(filters, {
+          page,
+          limit
+        });
+
+        userPayments = result.payments;
+        total = result.total;
+
+        console.log(`✅ Found ${userPayments.length} user payments for user_id: ${user.id}`);
+      }
+
+      // Format payments data
+      const formattedPayments = userPayments.map(p => ({
+        id: p.id,
+        amount_cents: p.amount_cents,
+        currency: p.currency,
+        status: p.status,
+        description: p.description,
+        provider_id: p.provider_id,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        completed_at: p.completed_at,
+        is_guest_payment: p.is_guest_payment,
+        guest_email: user.userType === 'guest' ? p.guest_email : undefined
+        // Don't expose sensitive data like client_secret
+      }));
+
+      // Use new standard response format
+      const response = formatResponse(
+        formattedPayments,
+        {
+          query: search,
+          page,
+          limit,
+          total,
+          orderBy,
+          orderDir
         },
-        timestamp: new Date().toISOString()
-      });
+        {
+          authenticated: true,
+          user_id: user.id,
+          user_type: user.userType,
+          user_email: user.email,
+          search_method: user.userType === 'guest' ? 'guest_email' : 'user_id'
+        }
+      );
+
+      console.log(`📤 Sending response with ${formattedPayments.length} payments`);
+      return c.json(response);
+    } else if (token && typeof token === 'string') {
+      // Token provided but authentication failed - try fallback search by guest_email
+      console.log(`🔍 Token authentication failed, attempting fallback search for token: ${token.substring(0, 8)}...`);
+
+      try {
+        // Try to find guest email associated with this token
+        const guestEmail = await paymentRepo.findGuestEmailByToken(token);
+
+        if (guestEmail) {
+          console.log(`✅ Found guest email for token: ${guestEmail}`);
+
+          // Search payments by guest email
+          const guestPayments = await paymentRepo.findGuestPayments(guestEmail, limit);
+
+          console.log(`✅ Found ${guestPayments.length} payments for guest email: ${guestEmail}`);
+
+          return c.json({
+            success: true,
+            data: {
+              payments: guestPayments.map(p => ({
+                id: p.id,
+                amount_cents: p.amount_cents,
+                currency: p.currency,
+                status: p.status,
+                description: p.description,
+                provider_id: p.provider_id,
+                created_at: p.created_at,
+                updated_at: p.updated_at,
+                completed_at: p.completed_at,
+                is_guest_payment: p.is_guest_payment
+              })),
+              pagination: {
+                page: 1,
+                limit: guestPayments.length,
+                total: guestPayments.length,
+                pages: 1
+              },
+              user_context: {
+                authenticated: false,
+                guest_access: true,
+                guest_email: guestEmail,
+                token_provided: true,
+                access_method: 'fallback_token_search',
+                message: 'Showing payments for guest user (fallback mode)'
+              }
+            },
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.warn(`⚠️ No guest email found for token: ${token.substring(0, 8)}...`);
+          // Don't show any payments for invalid tokens (security)
+        }
+      } catch (fallbackError) {
+        console.error('Fallback search error:', fallbackError);
+      }
+
+      // If all fallbacks fail, return error
+      return c.json(formatError(
+        "Authentication Failed",
+        "Token validation failed and no associated payments found"
+      ), 401);
     } else {
-      // Anonymous user - limited public info only
-      return c.json({
-        success: true,
-        data: {
-          payments: [],
-          pagination: { page: 1, limit: 0, total: 0, pages: 0 },
-          user_context: {
-            authenticated: false,
-            message: 'Authentication required to view payments'
-          }
-        },
-        timestamp: new Date().toISOString()
-      });
+      // Anonymous user - no token provided
+      return c.json(formatError(
+        "Authentication Required",
+        "Authentication required to view payments"
+      ), 401);
     }
 
   } catch (error) {
@@ -937,113 +991,178 @@ payments.get('/payments', optionalAuth(), async (c) => {
   }
 });
 
-// Get specific payment by ID (with ownership check)
+// Get specific payment by ID (with ownership check and guest token support)
 payments.get('/payments/:id', optionalAuth(), async (c) => {
   try {
     const user = c.get('user');
     const paymentId = c.req.param('id');
+    const token = c.req.query('token'); // Get token from query parameter
 
-    console.log(`🔍 Payment details requested: ${paymentId} by ${user ? `${user.id} (${user.userType})` : 'anonymous'}`);
+    console.log(`🔍 Payment details requested: ${paymentId} by ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
 
     const paymentRepo = await getPaymentRepository();
     const payment = await paymentRepo.findById(paymentId);
 
     if (!payment) {
-      throw new HTTPException(404, {
-        message: 'Payment not found'
-      });
+      return c.json(formatError(
+        "Not Found",
+        `Resource with ID ${paymentId} not found`
+      ), 404);
     }
 
     // Check access permissions
-    if (!user) {
-      // Anonymous users can't see payment details
-      throw new HTTPException(401, {
-        message: 'Authentication required to view payment details'
-      });
+    if (user) {
+      // Authenticated user - check ownership
+      let hasAccess = false;
+      let accessMethod = '';
+
+      if (user.userType === 'admin') {
+        // Admin can see all payments
+        hasAccess = true;
+        accessMethod = 'admin_access';
+      } else if (user.userType === 'guest' && user.email && payment.is_guest_payment && payment.guest_email === user.email) {
+        // Guest user with token - check guest email match
+        hasAccess = true;
+        accessMethod = 'guest_token_access';
+        console.log(`✅ Guest token access granted: payment.guest_email="${payment.guest_email}" matches user.email="${user.email}"`);
+      } else if (payment.user_id === user.id) {
+        // Regular user - check user_id match
+        hasAccess = true;
+        accessMethod = 'user_id_access';
+      }
+
+      if (!hasAccess) {
+        console.warn(`🚨 Unauthorized payment access attempt: user=${user.id} (${user.userType}) payment=${paymentId} owner=${payment.user_id} guest_email=${payment.guest_email}`);
+        return c.json(formatError(
+          "Access Denied",
+          "Insufficient privileges for this payment"
+        ), 403);
+      }
+
+      // Return payment details (exclude sensitive data for non-admin users)
+      const paymentData = {
+        id: payment.id,
+        amount_cents: payment.amount_cents,
+        currency: payment.currency,
+        status: payment.status,
+        description: payment.description,
+        provider_id: payment.provider_id,
+        provider_payment_id: payment.provider_payment_id,
+        created_at: payment.created_at,
+        updated_at: payment.updated_at,
+        completed_at: payment.completed_at,
+        is_guest_payment: payment.is_guest_payment,
+        // Include guest email for guest users
+        ...(user.userType === 'guest' && { guest_email: payment.guest_email }),
+        // Include sensitive data only for admin
+        ...(user.userType === 'admin' && {
+          client_secret: payment.client_secret,
+          metadata: payment.metadata,
+          guest_data: payment.guest_data,
+          user_id: payment.user_id
+        })
+      };
+
+      // Use new standard response format
+      return c.json(formatResponse(
+        paymentData,
+        {
+          page: 1,
+          limit: 1,
+          total: 1
+        },
+        {
+          authenticated: true,
+          user_id: user.id,
+          user_type: user.userType,
+          user_email: user.email,
+          access_method: accessMethod,
+          is_owner: payment.user_id === user.id || (user.userType === 'guest' && payment.guest_email === user.email),
+          is_admin: user.userType === 'admin'
+        }
+      ));
+
+    } else if (token && typeof token === 'string') {
+      // Token provided but authentication failed - try fallback search
+      console.log(`🔍 Token authentication failed for payment details, attempting fallback search for token: ${token.substring(0, 8)}...`);
+
+      // For payment details, we need to be more strict about token validation
+      // Only allow access if the payment is a guest payment
+      if (!payment.is_guest_payment || !payment.guest_email) {
+        console.warn(`⚠️ Token provided for non-guest payment: ${paymentId}`);
+        return c.json(formatError(
+          "Authentication Failed",
+          "Invalid token for this payment"
+        ), 401);
+      }
+
+      try {
+        // Try to find guest email associated with this token
+        const guestEmail = await paymentRepo.findGuestEmailByToken(token);
+
+        if (guestEmail && guestEmail === payment.guest_email) {
+          console.log(`✅ Fallback token access granted: token maps to email "${guestEmail}" which matches payment guest_email`);
+
+          // Return limited payment details for fallback access
+          const paymentData = {
+            id: payment.id,
+            amount_cents: payment.amount_cents,
+            currency: payment.currency,
+            status: payment.status,
+            description: payment.description,
+            provider_id: payment.provider_id,
+            created_at: payment.created_at,
+            updated_at: payment.updated_at,
+            completed_at: payment.completed_at,
+            is_guest_payment: payment.is_guest_payment,
+            guest_email: payment.guest_email
+          };
+
+          return c.json(formatResponse(
+            paymentData,
+            {
+              page: 1,
+              limit: 1,
+              total: 1
+            },
+            {
+              authenticated: false,
+              guest_access: true,
+              guest_email: guestEmail,
+              token_provided: true,
+              access_method: 'fallback_token_search',
+              message: 'Showing payment details for guest user (fallback mode)'
+            }
+          ));
+        } else {
+          console.warn(`⚠️ Token does not match payment guest email: token_email="${guestEmail}" payment_email="${payment.guest_email}"`);
+        }
+      } catch (fallbackError) {
+        console.error('Fallback token search error:', fallbackError);
+      }
+
+      // If fallback fails, return error
+      return c.json(formatError(
+        "Authentication Failed",
+        "Token validation failed for this payment"
+      ), 401);
+    } else {
+      // Anonymous user - no token provided
+      return c.json(formatError(
+        "Authentication Required",
+        "Authentication required to view payment details"
+      ), 401);
     }
-
-    // Check ownership (admin can see all, users can only see their own)
-    if (user.userType !== 'admin' && payment.user_id !== user.id) {
-      console.warn(`🚨 Unauthorized payment access attempt: user=${user.id} payment=${paymentId} owner=${payment.user_id}`);
-      throw new HTTPException(403, {
-        message: 'Access denied: insufficient privileges for this payment'
-      });
-    }
-
-    // Return payment details (exclude sensitive data for non-admin users)
-    const paymentData = {
-      id: payment.id,
-      amount_cents: payment.amount_cents,
-      currency: payment.currency,
-      status: payment.status,
-      description: payment.description,
-      provider_id: payment.provider_id,
-      provider_payment_id: payment.provider_payment_id,
-      created_at: payment.created_at,
-      updated_at: payment.updated_at,
-      completed_at: payment.completed_at,
-      // Include sensitive data only for admin
-      ...(user.userType === 'admin' && {
-        client_secret: payment.client_secret,
-        metadata: payment.metadata,
-        guest_data: payment.guest_data
-      })
-    };
-
-    return c.json({
-      success: true,
-      data: {
-        payment: paymentData
-      },
-      user_context: {
-        authenticated: true,
-        user_id: user.id,
-        user_type: user.userType,
-        is_owner: payment.user_id === user.id,
-        is_admin: user.userType === 'admin'
-      },
-      timestamp: new Date().toISOString()
-    });
 
   } catch (error) {
     if (error instanceof HTTPException) {
       throw error;
     }
     console.error('Get payment details error:', error);
-    throw new HTTPException(500, {
-      message: 'Failed to retrieve payment details'
-    });
-  }
-});
-
-// Debug endpoint to check recent payments
-payments.get('/payments/debug/recent', async (c) => {
-  try {
-    const paymentRepo = await getPaymentRepository();
-    const recentPayments = await paymentRepo.findRecent(10);
-
-    console.log('🔍 Recent payments found:', recentPayments.length);
-
-    return c.json({
-      count: recentPayments.length,
-      payments: recentPayments.map(p => ({
-        id: p.id,
-        provider_intent_id: p.provider_intent_id,
-        amount_cents: p.amount_cents,
-        currency: p.currency,
-        status: p.status,
-        provider_id: p.provider_id,
-        is_guest_payment: p.is_guest_payment,
-        guest_email: p.guest_email,
-        created_at: p.created_at
-      }))
-    });
-  } catch (error) {
-    console.error('❌ Debug recent payments error:', error);
-    return c.json({
-      error: 'Failed to fetch recent payments',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
+    return c.json(formatError(
+      "Internal Server Error",
+      "Failed to retrieve payment details"
+    ), 500);
   }
 });
 

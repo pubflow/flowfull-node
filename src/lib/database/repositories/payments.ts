@@ -31,6 +31,80 @@ export class PaymentRepository extends BaseRepository<'payments'> {
       .execute();
   }
 
+  // Find guest payments with filters and pagination (optimized)
+  async findGuestPaymentsWithFilters(
+    email: string,
+    filters: {
+      status?: string;
+      search?: string;
+      created_at_from?: string;
+      created_at_to?: string;
+    },
+    options: {
+      page: number;
+      limit: number;
+      orderBy?: string;
+      orderDir?: 'asc' | 'desc';
+    }
+  ): Promise<{ payments: PaymentTable[]; total: number }> {
+    let query = this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where('guest_email', '=', email)
+      .where('is_guest_payment', '=', true);
+
+    let countQuery = this.db
+      .selectFrom('payments')
+      .select((eb) => eb.fn.count('id').as('count'))
+      .where('guest_email', '=', email)
+      .where('is_guest_payment', '=', true);
+
+    // Apply filters
+    if (filters.status) {
+      query = query.where('status', '=', filters.status);
+      countQuery = countQuery.where('status', '=', filters.status);
+    }
+
+    if (filters.search) {
+      const searchCondition = (eb: any) => eb.or([
+        eb('id', 'like', `%${filters.search}%`),
+        eb('description', 'like', `%${filters.search}%`)
+      ]);
+      query = query.where(searchCondition);
+      countQuery = countQuery.where(searchCondition);
+    }
+
+    if (filters.created_at_from) {
+      query = query.where('created_at', '>=', filters.created_at_from);
+      countQuery = countQuery.where('created_at', '>=', filters.created_at_from);
+    }
+
+    if (filters.created_at_to) {
+      query = query.where('created_at', '<=', filters.created_at_to);
+      countQuery = countQuery.where('created_at', '<=', filters.created_at_to);
+    }
+
+    // Apply ordering
+    const validOrderFields = ['created_at', 'amount_cents', 'status', 'updated_at'];
+    const orderBy = validOrderFields.includes(options.orderBy || '') ? options.orderBy : 'created_at';
+    const orderDir = options.orderDir === 'asc' ? 'asc' : 'desc';
+
+    // Execute queries
+    const [payments, countResult] = await Promise.all([
+      query
+        .orderBy(orderBy as any, orderDir)
+        .limit(options.limit)
+        .offset((options.page - 1) * options.limit)
+        .execute(),
+      countQuery.executeTakeFirst()
+    ]);
+
+    return {
+      payments,
+      total: Number(countResult?.count || 0)
+    };
+  }
+
   // Find payment by provider intent ID
   async findByProviderIntentId(providerIntentId: string): Promise<PaymentTable | null> {
     return await this.findOneBy('provider_intent_id', providerIntentId);
@@ -411,5 +485,46 @@ export class PaymentRepository extends BaseRepository<'payments'> {
     } catch {
       return false;
     }
+  }
+
+  // Find payments by token (search in metadata or description)
+  async findByToken(token: string, limit = 20): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where((eb) =>
+        eb.or([
+          eb('metadata', 'like', `%${token}%`),
+          eb('description', 'like', `%${token}%`),
+          eb('provider_intent_id', 'like', `%${token}%`)
+        ])
+      )
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Find guest email by token (from recent payments)
+  async findGuestEmailByToken(token: string): Promise<string | null> {
+    const payments = await this.db
+      .selectFrom('payments')
+      .select(['guest_email', 'metadata'])
+      .where('is_guest_payment', '=', true)
+      .where('guest_email', 'is not', null)
+      .where((eb) =>
+        eb.or([
+          eb('metadata', 'like', `%${token}%`),
+          eb('description', 'like', `%${token}%`)
+        ])
+      )
+      .orderBy('created_at', 'desc')
+      .limit(1)
+      .execute();
+
+    if (payments.length > 0) {
+      return payments[0].guest_email;
+    }
+
+    return null;
   }
 }

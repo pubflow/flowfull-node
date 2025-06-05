@@ -262,6 +262,10 @@ export default {
   port,
   hostname: host,
   fetch: app.fetch,
+  // Increase server timeout to handle slow backend responses
+  idleTimeout: 60, // 60 seconds (Bun expects seconds, not milliseconds)
+  // Development settings
+  development: isDevelopment(),
 };
 
 // Export app for testing

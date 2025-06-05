@@ -38,12 +38,14 @@ export interface BackendTokenResponse {
   };
   tokenType: string;
   token_id: string;
+  expires_at: string;
+  message?: string;
 }
 
 class SecureAuthService {
   private readonly FLOWLESS_API_URL: string;
   private readonly BRIDGE_SECRET: string;
-  private readonly REQUEST_TIMEOUT = 5000; // 5 seconds timeout
+  private readonly REQUEST_TIMEOUT = parseInt(process.env.AUTH_TIMEOUT || '25000'); // Configurable timeout, default 25 seconds
 
   constructor() {
     this.FLOWLESS_API_URL = process.env.FLOWLESS_API_URL || '';
@@ -112,8 +114,12 @@ class SecureAuthService {
 
       // Sanitize token for URL
       const sanitizedToken = encodeURIComponent(token);
-      
-      const response = await fetch(`${this.FLOWLESS_API_URL}/auth/token/validate?token=${sanitizedToken}`, {
+      const url = `${this.FLOWLESS_API_URL}/auth/token/validate?token=${sanitizedToken}`;
+
+      console.log(`🔍 Validating token with backend: ${url.replace(sanitizedToken, token.substring(0, 8) + '...')} (timeout: ${this.REQUEST_TIMEOUT}ms)`);
+
+      const startTime = Date.now();
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'User-Agent': 'Bridge-Payments/1.0'
@@ -122,6 +128,9 @@ class SecureAuthService {
       });
 
       clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+
+      console.log(`📡 Backend response: ${response.status} ${response.statusText} (took ${duration}ms)`);
 
       if (!response.ok) {
         console.warn(`Backend token validation failed: ${response.status} ${response.statusText}`);
@@ -129,19 +138,21 @@ class SecureAuthService {
       }
 
       const data = await response.json() as BackendTokenResponse;
-      
+
+      console.log(`✅ Backend token validation successful: user=${data.user?.id} email=${data.user?.email}`);
+
       // Validate response structure
       if (!data.success || !data.user) {
-        console.warn('Invalid backend token response structure');
+        console.warn('Invalid backend token response structure:', data);
         return null;
       }
 
       return data;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.warn('Backend token validation timeout');
+        console.warn(`⏰ Backend token validation timeout after ${this.REQUEST_TIMEOUT}ms - consider increasing AUTH_TIMEOUT in .env`);
       } else {
-        console.error('Backend token validation error:', error);
+        console.error('❌ Backend token validation error:', error);
       }
       return null;
     }
@@ -175,9 +186,17 @@ class SecureAuthService {
    */
   private tokenResponseToCachedUser(response: BackendTokenResponse, token: string): CachedUser {
     const now = new Date();
-    const cacheExpiry = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
-    // Token users have shorter session (1 hour)
-    const tokenExpiry = new Date(now.getTime() + 60 * 60 * 1000);
+    const cacheExpiry = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes cache
+
+    // Use the actual token expiration from backend
+    const tokenExpiry = new Date(response.expires_at);
+
+    console.log(`🔄 Converting token response to cached user:`);
+    console.log(`   - User ID: ${response.user.id}`);
+    console.log(`   - Email: ${response.user.email}`);
+    console.log(`   - Token Type: ${response.tokenType}`);
+    console.log(`   - Token Expires: ${response.expires_at}`);
+    console.log(`   - Cache Expires: ${cacheExpiry.toISOString()}`);
 
     return {
       id: response.user.id,
@@ -189,7 +208,7 @@ class SecureAuthService {
       lastName: '',
       cachedAt: now.toISOString(),
       expiresAt: cacheExpiry.toISOString(),
-      sessionExpiresAt: tokenExpiry.toISOString(),
+      sessionExpiresAt: response.expires_at, // Use actual token expiration
       tokenType: 'token_login',
       originalIdentifier: token
     };
@@ -243,6 +262,7 @@ class SecureAuthService {
       // Check cache first
       const cachedUser = secureUserCache.get('token', token);
       if (cachedUser && !secureUserCache.needsValidation('token', token)) {
+        console.log(`⚡ Token validation from cache: ${token.substring(0, 8)}... (instant)`);
         return { success: true, user: cachedUser, fromCache: true };
       }
 
