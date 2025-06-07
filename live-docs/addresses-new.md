@@ -31,6 +31,7 @@ https://your-domain.com/bridge-payment/addresses
 | POST | `/addresses` | Create new address | Optional |
 | PUT | `/addresses/:id` | Update address | Yes* |
 | DELETE | `/addresses/:id` | Delete address | Yes* |
+| DELETE | `/addresses/:id?guest_email=<email>` | Delete guest address with email verification | Email Required |
 
 *For authenticated users or guest users with valid tokens
 
@@ -150,7 +151,15 @@ GET /bridge-payment/addresses?token=<guest_token>
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Required for authenticated users
+# Option 1: Authorization Bearer (standard)
+Authorization: Bearer <sessionId>
+
+# Option 2: Custom session header
+X-Session-ID: <sessionId>
+
+# Option 3: Query parameter (alternative)
+# Use ?session_id=<sessionId> instead of headers
+
 Content-Type: application/json
 ```
 

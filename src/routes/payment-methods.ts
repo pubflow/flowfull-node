@@ -704,74 +704,321 @@ paymentMethods.get('/customer/:customerId', optionalAuth(), async (c) => {
   }
 });
 
-// Validation schema for delete
-const deletePaymentMethodSchema = z.object({
-  customer_id: z.string().min(1, 'Customer ID is required') // Stripe customer ID (e.g., cus_xxx) - REQUIRED for security
+// Validation schema for update (local fields only)
+const updatePaymentMethodSchema = z.object({
+  is_default: z.boolean().optional(),
+  billing_address_id: z.string().uuid().optional().nullable(),
+  metadata: z.record(z.string()).optional()
 });
 
-// Delete payment method
-paymentMethods.delete('/:id', optionalAuth(), async (c) => {
+// Update payment method (local fields only - non-invasive to provider)
+paymentMethods.put('/:id', optionalAuth(), async (c) => {
   try {
     const paymentMethodId = c.req.param('id');
     const user = c.get('user');
+    const token = c.req.query('token'); // Get token from query parameter
+    const body = await c.req.json();
+    const validatedData = updatePaymentMethodSchema.parse(body);
 
-    // Get customer_id from query params or body (REQUIRED for security)
-    let stripeCustomerId = c.req.query('customer_id');
-    if (!stripeCustomerId) {
-      try {
-        const body = await c.req.json();
-        const validatedData = deletePaymentMethodSchema.parse(body);
-        stripeCustomerId = validatedData.customer_id;
-      } catch (error) {
-        throw new HTTPException(400, {
-          message: 'Customer ID is required. Provide it via query parameter (?customer_id=cus_xxx) or in request body.',
-          cause: error instanceof z.ZodError ? error.errors : undefined
-        });
-      }
-    }
+    console.log(`🔧 Payment method update requested: ${paymentMethodId} by ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
 
     const paymentMethodRepo = await getPaymentMethodRepository();
     const paymentMethod = await paymentMethodRepo.findById(paymentMethodId);
 
     if (!paymentMethod) {
-      throw new HTTPException(404, {
-        message: 'Payment method not found'
-      });
+      return c.json(formatError(
+        "Not Found",
+        `Payment method with ID ${paymentMethodId} not found`
+      ), 404);
     }
 
-    // Check authorization
-    if (user && user.userType !== 'guest' && paymentMethod.user_id !== user.id) {
-      throw new HTTPException(403, {
-        message: 'Access denied'
-      });
+    // Check access permissions (same as DELETE)
+    if (user) {
+      // Authenticated user - check ownership
+      let hasAccess = false;
+      let accessMethod = '';
+
+      if (user.userType === 'admin') {
+        // Admin can update any payment method
+        hasAccess = true;
+        accessMethod = 'admin_access';
+      } else if (user.userType === 'guest' && user.email && paymentMethod.is_guest && paymentMethod.guest_email === user.email) {
+        // Guest user with token - check guest email match
+        hasAccess = true;
+        accessMethod = 'guest_token_access';
+        console.log(`✅ Guest token update access granted: paymentMethod.guest_email="${paymentMethod.guest_email}" matches user.email="${user.email}"`);
+      } else if (paymentMethod.user_id === user.id) {
+        // Regular user - check user_id match
+        hasAccess = true;
+        accessMethod = 'user_id_access';
+      }
+
+      if (!hasAccess) {
+        console.warn(`🚨 Unauthorized payment method update attempt: user=${user.id} (${user.userType}) paymentMethod=${paymentMethodId} owner=${paymentMethod.user_id} guest_email=${paymentMethod.guest_email}`);
+        return c.json(formatError(
+          "Access Denied",
+          "Insufficient privileges to update this payment method"
+        ), 403);
+      }
+
+      console.log(`✅ Payment method update authorized via ${accessMethod}`);
+
+    } else if (token && typeof token === 'string') {
+      // Token provided but authentication failed - try fallback search
+      console.log(`🔍 Token authentication failed for payment method update, attempting fallback search for token: ${token.substring(0, 8)}...`);
+
+      // For payment method updates, we need to be strict about token validation
+      // Only allow updates if the payment method is a guest payment method
+      if (!paymentMethod.is_guest || !paymentMethod.guest_email) {
+        console.warn(`⚠️ Token provided for non-guest payment method update: ${paymentMethodId}`);
+        return c.json(formatError(
+          "Authentication Failed",
+          "Invalid token for this payment method"
+        ), 401);
+      }
+
+      try {
+        // Try to find guest email associated with this token
+        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const paymentRepo = await getPaymentRepository();
+        const guestEmail = await paymentRepo.findGuestEmailByToken(token);
+
+        if (guestEmail && guestEmail === paymentMethod.guest_email) {
+          console.log(`✅ Fallback token update access granted: token maps to email "${guestEmail}" which matches payment method guest_email`);
+        } else {
+          console.warn(`⚠️ Token does not match payment method guest email for update: token_email="${guestEmail}" paymentMethod_email="${paymentMethod.guest_email}"`);
+          return c.json(formatError(
+            "Authentication Failed",
+            "Token validation failed for this payment method"
+          ), 401);
+        }
+      } catch (fallbackError) {
+        console.error('Fallback token search error for update:', fallbackError);
+        return c.json(formatError(
+          "Authentication Failed",
+          "Token validation failed for this payment method"
+        ), 401);
+      }
+    } else {
+      // Anonymous user - no token provided
+      return c.json(formatError(
+        "Authentication Required",
+        "Authentication required to update payment method"
+      ), 401);
     }
 
-    // Delete from provider (Stripe)
-    const adapter = getPaymentAdapter(paymentMethod.provider_id);
+    // Handle default payment method logic
+    if (validatedData.is_default === true) {
+      console.log('🔄 Setting payment method as default, unsetting others...');
 
-    // Use the required customer_id (no fallback for security)
-    const customerProviderCustomerId = stripeCustomerId;
+      if (paymentMethod.is_guest && paymentMethod.guest_email) {
+        // Unset other default payment methods for this guest email
+        await paymentMethodRepo.unsetDefaultForGuest(paymentMethod.guest_email);
+      } else if (paymentMethod.user_id) {
+        // Unset other default payment methods for this user
+        await paymentMethodRepo.unsetDefaultForUser(paymentMethod.user_id);
+      }
+    }
 
-    console.log('🗑️ Deleting payment method from Stripe...');
-    console.log(`   Payment Method: ${paymentMethod.provider_payment_method_id}`);
-    console.log(`   Customer ID: ${customerProviderCustomerId}`);
-    console.log(`   🔒 Security: Both payment method ID and customer ID required`);
+    // Update payment method (local fields only)
+    const updateData = {
+      ...validatedData,
+      updated_at: new Date().toISOString()
+    };
 
+    const updatedPaymentMethod = await paymentMethodRepo.update(paymentMethodId, updateData);
+
+    console.log('✅ Payment method updated successfully (local fields only)');
+    console.log(`   Updated fields: ${Object.keys(validatedData).join(', ')}`);
+
+    // Return updated payment method with appropriate fields based on user type
+    const responseData = {
+      id: updatedPaymentMethod.id,
+      provider_payment_method_id: updatedPaymentMethod.provider_payment_method_id,
+      payment_type: updatedPaymentMethod.payment_type,
+      card_brand: updatedPaymentMethod.card_brand,
+      last_four: updatedPaymentMethod.last_four,
+      expiry_month: updatedPaymentMethod.expiry_month,
+      expiry_year: updatedPaymentMethod.expiry_year,
+      is_default: updatedPaymentMethod.is_default,
+      is_guest: updatedPaymentMethod.is_guest,
+      created_at: updatedPaymentMethod.created_at,
+      updated_at: updatedPaymentMethod.updated_at,
+      // Include guest data for guest users
+      ...(user?.userType === 'guest' && {
+        guest_email: updatedPaymentMethod.guest_email
+      }),
+      // Include sensitive data only for admin
+      ...(user?.userType === 'admin' && {
+        user_id: updatedPaymentMethod.user_id,
+        organization_id: updatedPaymentMethod.organization_id,
+        billing_address_id: updatedPaymentMethod.billing_address_id
+      })
+    };
+
+    return c.json(formatResponse(
+      responseData,
+      {
+        page: 1,
+        limit: 1,
+        total: 1
+      },
+      {
+        authenticated: !!user,
+        user_id: user?.id,
+        user_type: user?.userType,
+        user_email: user?.email,
+        access_method: user ? (user.userType === 'admin' ? 'admin_access' :
+                              user.userType === 'guest' ? 'guest_token_access' : 'user_id_access') : 'fallback_token_search',
+        is_owner: paymentMethod.user_id === user?.id || (user?.userType === 'guest' && paymentMethod.guest_email === user.email),
+        is_admin: user?.userType === 'admin',
+        updated_fields: Object.keys(validatedData)
+      }
+    ));
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return c.json(formatError(
+        "Validation Error",
+        "Invalid request data",
+        error.errors
+      ), 400);
+    }
+
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    console.error('Update payment method error:', error);
+    return c.json(formatError(
+      "Internal Server Error",
+      "Failed to update payment method"
+    ), 500);
+  }
+});
+
+// Delete payment method with simplified ownership validation
+paymentMethods.delete('/:id', optionalAuth(), async (c) => {
+  try {
+    const paymentMethodId = c.req.param('id');
+    const user = c.get('user');
+    const token = c.req.query('token'); // Get token from query parameter
+
+    console.log(`🗑️ Payment method deletion requested: ${paymentMethodId} by ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
+
+    const paymentMethodRepo = await getPaymentMethodRepository();
+    const paymentMethod = await paymentMethodRepo.findById(paymentMethodId);
+
+    if (!paymentMethod) {
+      return c.json(formatError(
+        "Not Found",
+        `Payment method with ID ${paymentMethodId} not found`
+      ), 404);
+    }
+
+    // Check access permissions (similar to addresses)
+    if (user) {
+      // Authenticated user - check ownership
+      let hasAccess = false;
+      let accessMethod = '';
+
+      if (user.userType === 'admin') {
+        // Admin can delete any payment method
+        hasAccess = true;
+        accessMethod = 'admin_access';
+      } else if (user.userType === 'guest' && user.email && paymentMethod.is_guest && paymentMethod.guest_email === user.email) {
+        // Guest user with token - check guest email match
+        hasAccess = true;
+        accessMethod = 'guest_token_access';
+        console.log(`✅ Guest token deletion access granted: paymentMethod.guest_email="${paymentMethod.guest_email}" matches user.email="${user.email}"`);
+      } else if (paymentMethod.user_id === user.id) {
+        // Regular user - check user_id match
+        hasAccess = true;
+        accessMethod = 'user_id_access';
+      }
+
+      if (!hasAccess) {
+        console.warn(`🚨 Unauthorized payment method deletion attempt: user=${user.id} (${user.userType}) paymentMethod=${paymentMethodId} owner=${paymentMethod.user_id} guest_email=${paymentMethod.guest_email}`);
+        return c.json(formatError(
+          "Access Denied",
+          "Insufficient privileges to delete this payment method"
+        ), 403);
+      }
+
+      console.log(`✅ Payment method deletion authorized via ${accessMethod}`);
+
+    } else if (token && typeof token === 'string') {
+      // Token provided but authentication failed - try fallback search
+      console.log(`🔍 Token authentication failed for payment method deletion, attempting fallback search for token: ${token.substring(0, 8)}...`);
+
+      // For payment method deletion, we need to be strict about token validation
+      // Only allow deletion if the payment method is a guest payment method
+      if (!paymentMethod.is_guest || !paymentMethod.guest_email) {
+        console.warn(`⚠️ Token provided for non-guest payment method deletion: ${paymentMethodId}`);
+        return c.json(formatError(
+          "Authentication Failed",
+          "Invalid token for this payment method"
+        ), 401);
+      }
+
+      try {
+        // Try to find guest email associated with this token
+        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const paymentRepo = await getPaymentRepository();
+        const guestEmail = await paymentRepo.findGuestEmailByToken(token);
+
+        if (guestEmail && guestEmail === paymentMethod.guest_email) {
+          console.log(`✅ Fallback token deletion access granted: token maps to email "${guestEmail}" which matches payment method guest_email`);
+        } else {
+          console.warn(`⚠️ Token does not match payment method guest email for deletion: token_email="${guestEmail}" paymentMethod_email="${paymentMethod.guest_email}"`);
+          return c.json(formatError(
+            "Authentication Failed",
+            "Token validation failed for this payment method"
+          ), 401);
+        }
+      } catch (fallbackError) {
+        console.error('Fallback token search error for deletion:', fallbackError);
+        return c.json(formatError(
+          "Authentication Failed",
+          "Token validation failed for this payment method"
+        ), 401);
+      }
+    } else {
+      // Anonymous user - no token provided
+      return c.json(formatError(
+        "Authentication Required",
+        "Authentication required to delete payment method"
+      ), 401);
+    }
+
+    // Delete from provider (Stripe) if possible
     try {
+      const adapter = getPaymentAdapter(paymentMethod.provider_id);
+
+      console.log('🗑️ Attempting to delete payment method from provider...');
+      console.log(`   Payment Method: ${paymentMethod.provider_payment_method_id}`);
+      console.log(`   Provider: ${paymentMethod.provider_id}`);
+
+      // Try to delete from provider (best effort)
       await adapter.deletePaymentMethod(
         paymentMethod.provider_payment_method_id,
-        customerProviderCustomerId || undefined
+        undefined // No customer_id required for simplified deletion
       );
-      console.log('✅ Payment method deleted from Stripe');
-    } catch (stripeError: any) {
-      console.log('⚠️ Error deleting from Stripe:', stripeError.message);
-      // Continue with DB deletion even if Stripe deletion fails
+      console.log('✅ Payment method deleted from provider');
+    } catch (providerError: any) {
+      console.log('⚠️ Error deleting from provider (continuing with DB deletion):', providerError.message);
+      // Continue with DB deletion even if provider deletion fails
     }
 
     // Delete from database
     await paymentMethodRepo.delete(paymentMethodId);
 
-    return c.json({ message: 'Payment method deleted successfully' });
+    console.log('✅ Payment method deleted successfully from database');
+
+    return c.json({
+      message: 'Payment method deleted successfully',
+      id: paymentMethodId
+    });
 
   } catch (error) {
     if (error instanceof HTTPException) {
@@ -779,9 +1026,10 @@ paymentMethods.delete('/:id', optionalAuth(), async (c) => {
     }
 
     console.error('Delete payment method error:', error);
-    throw new HTTPException(500, {
-      message: 'Failed to delete payment method'
-    });
+    return c.json(formatError(
+      "Internal Server Error",
+      "Failed to delete payment method"
+    ), 500);
   }
 });
 

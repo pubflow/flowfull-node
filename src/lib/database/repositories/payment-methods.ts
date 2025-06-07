@@ -138,6 +138,41 @@ export class PaymentMethodRepository extends BaseRepository<'payment_methods'> {
     return result as PaymentMethodTable | null;
   }
 
+  // Unset default payment methods for a user
+  async unsetDefaultForUser(userId: string): Promise<void> {
+    console.log('🔄 Unsetting default payment methods for user:', userId);
+
+    await this.db
+      .updateTable('payment_methods')
+      .set({
+        is_default: false,
+        updated_at: this.getCurrentTimestamp()
+      } as any)
+      .where('user_id', '=', userId)
+      .where('is_default', '=', true)
+      .execute();
+
+    console.log('✅ Default payment methods unset for user');
+  }
+
+  // Unset default payment methods for a guest email
+  async unsetDefaultForGuest(guestEmail: string): Promise<void> {
+    console.log('🔄 Unsetting default payment methods for guest:', guestEmail);
+
+    await this.db
+      .updateTable('payment_methods')
+      .set({
+        is_default: false,
+        updated_at: this.getCurrentTimestamp()
+      } as any)
+      .where('is_guest', '=', true)
+      .where('guest_email', '=', guestEmail)
+      .where('is_default', '=', true)
+      .execute();
+
+    console.log('✅ Default payment methods unset for guest');
+  }
+
   // Convert guest payment methods to user (when guest registers)
   async convertGuestToUser(guestEmail: string, userId: string): Promise<PaymentMethodTable[]> {
     console.log('🔄 Converting guest payment methods to user:', { guestEmail, userId });

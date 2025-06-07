@@ -15,8 +15,10 @@ export interface BackendSessionResponse {
     email: string;
     name: string;
     userType: string;
+    paymentUserId?: string;
     firstName?: string;
     lastName?: string;
+    phone?: string | null;
     isVerified?: boolean;
   };
   session: {
@@ -165,11 +167,17 @@ class SecureAuthService {
     const now = new Date();
     const cacheExpiry = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes
 
+    console.log(`🔄 Converting session response to cached user:`);
+    console.log(`   - User ID: ${response.user.id}`);
+    console.log(`   - Email: ${response.user.email}`);
+    console.log(`   - User Type: ${response.user.userType}`);
+    console.log(`   - Session Expires: ${response.session.expiresAt}`);
+
     return {
       id: response.user.id,
       email: response.user.email,
       name: response.user.name,
-      userType: response.user.userType,
+      userType: response.user.userType, // Use userType from your API response
       isVerified: response.user.isVerified || false,
       firstName: response.user.firstName || response.user.name,
       lastName: response.user.lastName || '',
@@ -227,6 +235,7 @@ class SecureAuthService {
       // Check cache first
       const cachedUser = secureUserCache.get('session', sessionId);
       if (cachedUser && !secureUserCache.needsValidation('session', sessionId)) {
+        console.log(`⚡ Session validation from cache: ${sessionId.substring(0, 8)}... (instant)`);
         return { success: true, user: cachedUser, fromCache: true };
       }
 

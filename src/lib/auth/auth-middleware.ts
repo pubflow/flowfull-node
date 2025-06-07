@@ -21,25 +21,36 @@ export interface AuthMiddlewareOptions {
 }
 
 /**
- * Extract authentication token from request
+ * Extract authentication token from request (multiple sources)
  */
-function extractAuthToken(c: Context): { type: 'session' | 'token' | null; value: string | null } {
+function extractAuthToken(c: Context): { type: 'session' | 'token' | null; value: string | null; source?: string } {
+  // 1. Try Authorization header first
   const authHeader = c.req.header('Authorization');
-  
-  if (!authHeader) {
-    return { type: null, value: null };
+
+  if (authHeader) {
+    // Bearer token (session)
+    if (authHeader.startsWith('Bearer ')) {
+      const sessionId = authHeader.substring(7).trim();
+      return sessionId ? { type: 'session', value: sessionId, source: 'Authorization-Bearer' } : { type: null, value: null };
+    }
+
+    // Token authentication
+    if (authHeader.startsWith('Token ')) {
+      const token = authHeader.substring(6).trim();
+      return token ? { type: 'token', value: token, source: 'Authorization-Token' } : { type: null, value: null };
+    }
   }
 
-  // Bearer token (session)
-  if (authHeader.startsWith('Bearer ')) {
-    const sessionId = authHeader.substring(7).trim();
-    return sessionId ? { type: 'session', value: sessionId } : { type: null, value: null };
+  // 2. Try X-Session-ID header
+  const sessionHeader = c.req.header('X-Session-ID');
+  if (sessionHeader && sessionHeader.trim().length > 10) {
+    return { type: 'session', value: sessionHeader.trim(), source: 'X-Session-ID' };
   }
 
-  // Token authentication
-  if (authHeader.startsWith('Token ')) {
-    const token = authHeader.substring(6).trim();
-    return token ? { type: 'token', value: token } : { type: null, value: null };
+  // 3. Try session_id query parameter
+  const sessionParam = c.req.query('session_id');
+  if (sessionParam && typeof sessionParam === 'string' && sessionParam.length > 10) {
+    return { type: 'session', value: sessionParam, source: 'session_id-param' };
   }
 
   return { type: null, value: null };
@@ -56,15 +67,16 @@ function extractQueryToken(c: Context): string | null {
 /**
  * Log authentication attempt for security monitoring
  */
-function logAuthAttempt(c: Context, result: AuthValidationResult, authType: string) {
+function logAuthAttempt(c: Context, result: AuthValidationResult, authType: string, authSource?: string) {
   const ip = c.req.header('CF-Connecting-IP') || c.req.header('x-forwarded-for') || 'unknown';
   const userAgent = c.req.header('User-Agent') || 'unknown';
   const path = c.req.path;
+  const sourceInfo = authSource ? ` source=${authSource}` : '';
 
   if (result.success && result.user) {
-    console.log(`✅ Auth success: ${authType} user=${result.user.id} type=${result.user.userType} ip=${ip} path=${path} cache=${result.fromCache}`);
+    console.log(`✅ Auth success: ${authType}${sourceInfo} user=${result.user.id} type=${result.user.userType} ip=${ip} path=${path} cache=${result.fromCache}`);
   } else {
-    console.warn(`❌ Auth failed: ${authType} ip=${ip} path=${path} error=${result.error} ua=${userAgent.substring(0, 50)}`);
+    console.warn(`❌ Auth failed: ${authType}${sourceInfo} ip=${ip} path=${path} error=${result.error} ua=${userAgent.substring(0, 50)}`);
   }
 }
 
@@ -74,7 +86,7 @@ function logAuthAttempt(c: Context, result: AuthValidationResult, authType: stri
 export function requireAdmin() {
   return async (c: Context, next: Next) => {
     const auth = extractAuthToken(c);
-    
+
     if (!auth.type || !auth.value) {
       throw new HTTPException(401, {
         message: 'Admin authentication required'
@@ -82,14 +94,14 @@ export function requireAdmin() {
     }
 
     let result: AuthValidationResult;
-    
+
     if (auth.type === 'session') {
       result = await authService.validateSession(auth.value);
     } else {
       result = await authService.validateToken(auth.value);
     }
 
-    logAuthAttempt(c, result, `admin-${auth.type}`);
+    logAuthAttempt(c, result, `admin-${auth.type}`, auth.source);
 
     if (!result.success || !result.user) {
       throw new HTTPException(401, {
@@ -99,7 +111,7 @@ export function requireAdmin() {
 
     // Check admin privileges
     if (result.user.userType !== 'admin') {
-      console.warn(`🚨 Non-admin user attempted admin access: ${result.user.id} (${result.user.userType})`);
+      console.warn(`🚨 Non-admin user attempted admin access: ${result.user.id} (${result.user.userType}) via ${auth.source}`);
       throw new HTTPException(403, {
         message: 'Admin privileges required'
       });
@@ -125,16 +137,16 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
   } = options;
 
   return async (c: Context, next: Next) => {
-    // Try header authentication first
+    // Try multiple authentication sources
     let auth = extractAuthToken(c);
-    let authSource = 'header';
+    let authSource = auth.source || 'unknown';
 
-    // If no header auth, try query parameter (for GET requests)
+    // If no auth found, try query parameter for guest tokens (for GET requests)
     if (!auth.type && c.req.method === 'GET') {
       const queryToken = extractQueryToken(c);
       if (queryToken) {
-        auth = { type: 'token', value: queryToken };
-        authSource = 'query';
+        auth = { type: 'token', value: queryToken, source: 'token-query' };
+        authSource = 'token-query';
       }
     }
 
@@ -153,7 +165,7 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
 
     // Validate authentication
     let result: AuthValidationResult;
-    
+
     if (auth.type === 'session') {
       result = await authService.validateSession(auth.value!);
     } else if (auth.type === 'token') {
@@ -164,7 +176,7 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
       });
     }
 
-    logAuthAttempt(c, result, `user-${auth.type}-${authSource}`);
+    logAuthAttempt(c, result, `user-${auth.type}`, authSource);
 
     if (!result.success || !result.user) {
       throw new HTTPException(401, {
@@ -174,7 +186,7 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
 
     // Check user type permissions
     if (!authService.hasUserType(result.user, allowedUserTypes)) {
-      console.warn(`🚨 User type not allowed: ${result.user.id} (${result.user.userType}) for types: ${allowedUserTypes.join(',')}`);
+      console.warn(`🚨 User type not allowed: ${result.user.id} (${result.user.userType}) via ${authSource} for types: ${allowedUserTypes.join(',')}`);
       throw new HTTPException(403, {
         message: 'Insufficient privileges for this resource'
       });
@@ -184,7 +196,7 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
     if (ownershipCheck) {
       const resourceUserId = c.req.param('userId') || c.req.param('id');
       if (resourceUserId && !authService.canAccessResource(result.user, resourceUserId)) {
-        console.warn(`🚨 Ownership check failed: user=${result.user.id} resource=${resourceUserId}`);
+        console.warn(`🚨 Ownership check failed: user=${result.user.id} resource=${resourceUserId} via ${authSource}`);
         throw new HTTPException(403, {
           message: 'Access denied: insufficient privileges for this resource'
         });
@@ -204,14 +216,14 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
  */
 export function optionalAuth() {
   return async (c: Context, next: Next) => {
-    // Try header authentication
+    // Try multiple authentication sources
     let auth = extractAuthToken(c);
 
-    // Try query parameter for GET requests
+    // Try query parameter for guest tokens (for GET requests)
     if (!auth.type && c.req.method === 'GET') {
       const queryToken = extractQueryToken(c);
       if (queryToken) {
-        auth = { type: 'token', value: queryToken };
+        auth = { type: 'token', value: queryToken, source: 'token-query' };
       }
     }
 
@@ -224,7 +236,7 @@ export function optionalAuth() {
     // Try to validate authentication
     try {
       let result: AuthValidationResult;
-      
+
       if (auth.type === 'session') {
         result = await authService.validateSession(auth.value!);
       } else if (auth.type === 'token') {
@@ -238,11 +250,13 @@ export function optionalAuth() {
       if (result.success && result.user) {
         c.set('user', result.user);
         c.set('authResult', result);
-        console.log(`👤 Optional auth success: ${result.user.id} (${result.user.userType})`);
+        console.log(`👤 Optional auth success: ${result.user.id} (${result.user.userType}) via ${auth.source || 'unknown'}`);
+      } else {
+        console.log(`👤 Optional auth failed via ${auth.source || 'unknown'}: ${result.error || 'unknown error'}`);
       }
     } catch (error) {
       // Log but don't fail - this is optional auth
-      console.warn('Optional auth failed:', error);
+      console.warn(`Optional auth failed via ${auth.source || 'unknown'}:`, error);
     }
 
     await next();

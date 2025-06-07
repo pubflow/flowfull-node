@@ -599,7 +599,15 @@ GET /bridge-payment/payments?token=<guest_token>
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Required for authenticated users
+# Option 1: Authorization Bearer (standard)
+Authorization: Bearer <sessionId>
+
+# Option 2: Custom session header
+X-Session-ID: <sessionId>
+
+# Option 3: Query parameter (alternative)
+# Use ?session_id=<sessionId> instead of headers
+
 Content-Type: application/json
 ```
 
@@ -692,10 +700,20 @@ Content-Type: application/json
 
 ### Examples
 
-#### Authenticated User Payments
+#### Authenticated User Payments (Multiple Auth Methods)
 ```bash
+# Method 1: Authorization Bearer
 curl -X GET "https://api.example.com/bridge-payment/payments?page=1&limit=20&status=succeeded" \
-  -H "Authorization: Bearer your_token_here" \
+  -H "Authorization: Bearer your_session_id_here" \
+  -H "Content-Type: application/json"
+
+# Method 2: X-Session-ID Header
+curl -X GET "https://api.example.com/bridge-payment/payments?page=1&limit=20&status=succeeded" \
+  -H "X-Session-ID: your_session_id_here" \
+  -H "Content-Type: application/json"
+
+# Method 3: Query Parameter
+curl -X GET "https://api.example.com/bridge-payment/payments?page=1&limit=20&status=succeeded&session_id=your_session_id_here" \
   -H "Content-Type: application/json"
 ```
 

@@ -36,7 +36,8 @@ https://your-domain.com/bridge-payment/payment-methods
 | GET | `/payment-methods/:id?token=<token>` | Get guest payment method by ID with token | Token Required |
 | POST | `/payment-methods` | Create payment method (token-based) | Optional |
 | POST | `/payment-methods/direct` | Create payment method (direct - dev only) | Optional |
-| GET | `/payment-methods/:id` | Get payment method by ID | Optional |
+| PUT | `/payment-methods/:id` | Update payment method (local fields only) | Yes* |
+| PUT | `/payment-methods/:id?token=<token>` | Update guest payment method with token | Token Required |
 | GET | `/payment-methods/customer/:customerId` | List customer payment methods | Optional |
 | DELETE | `/payment-methods/:id` | Delete payment method | Optional |
 
@@ -283,6 +284,214 @@ curl -X GET "https://api.example.com/bridge-payment/payment-methods/pm_123456789
 ```bash
 curl -X GET "https://api.example.com/bridge-payment/payment-methods/pm_1234567890?token=guest_token_here" \
   -H "Content-Type: application/json"
+```
+
+---
+
+## Update Payment Method (Local Fields Only)
+
+Update a payment method's local fields without affecting the payment provider. This endpoint allows updating metadata, default status, and billing address associations while maintaining provider sync integrity.
+
+### Request
+
+```http
+PUT /bridge-payment/payment-methods/:id
+PUT /bridge-payment/payment-methods/:id?token=<guest_token>
+```
+
+#### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | Payment method ID to update |
+
+#### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `token` | string | No* | Guest access token (*required for guest users) |
+
+#### Headers
+
+```http
+Authorization: Bearer <token>  # Required for authenticated users
+Content-Type: application/json
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `is_default` | boolean | No | Set as default payment method |
+| `billing_address_id` | string | No | UUID of billing address to associate |
+| `metadata` | object | No | Custom metadata key-value pairs |
+
+**Note**: Only local fields can be updated. Provider-specific fields like `expiry_month`, `expiry_year`, or `card_brand` require provider synchronization (see Provider Sync documentation).
+
+### Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "pm_1234567890",
+    "provider_payment_method_id": "pm_stripe_abc123",
+    "payment_type": "card",
+    "card_brand": "visa",
+    "last_four": "4242",
+    "expiry_month": "12",
+    "expiry_year": "2025",
+    "is_default": true,
+    "is_guest": true,
+    "guest_email": "guest@example.com",
+    "created_at": "2025-01-15T10:30:00Z",
+    "updated_at": "2025-01-15T11:45:00Z"
+  },
+  "meta": {
+    "page": 1,
+    "limit": 1,
+    "total": 1
+  },
+  "user_context": {
+    "authenticated": true,
+    "user_id": "user_123",
+    "user_type": "guest",
+    "user_email": "guest@example.com",
+    "access_method": "guest_token_access",
+    "is_owner": true,
+    "is_admin": false,
+    "updated_fields": ["is_default", "metadata"]
+  }
+}
+```
+
+### Examples
+
+#### Set as Default Payment Method
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_default": true
+  }'
+```
+
+#### Associate Billing Address
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "billing_address_id": "addr_billing_123"
+  }'
+```
+
+#### Update Metadata
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "metadata": {
+      "nickname": "My primary card",
+      "category": "business",
+      "notes": "Company credit card"
+    }
+  }'
+```
+
+#### Guest User Update with Token
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_guest_123?token=guest_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_default": true,
+    "metadata": {
+      "nickname": "Guest checkout card"
+    }
+  }'
+```
+
+#### Multiple Fields Update
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_default": true,
+    "billing_address_id": "addr_billing_456",
+    "metadata": {
+      "nickname": "Updated primary card",
+      "last_updated_by": "user_interface"
+    }
+  }'
+```
+
+### Access Control
+
+- **Authenticated Users**: Can only update their own payment methods (user_id match)
+- **Guest Users with Tokens**: Can only update payment methods where guest_email matches their token email
+- **Admin Users**: Can update any payment method
+- **Anonymous Users**: Cannot update payment methods
+
+### Default Payment Method Logic
+
+- **Single Default**: Only one payment method can be default per user/guest
+- **Auto-unset**: Setting `is_default: true` automatically unsets other default payment methods
+- **User Scope**: Default logic applies per user_id for authenticated users
+- **Guest Scope**: Default logic applies per guest_email for guest users
+
+### Error Responses
+
+#### Validation Error
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Validation Error",
+  "details": "Invalid request data",
+  "validation_errors": [
+    {
+      "field": "billing_address_id",
+      "message": "Invalid UUID format"
+    }
+  ]
+}
+```
+
+#### Access Denied
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Access Denied",
+  "details": "Insufficient privileges to update this payment method"
+}
+```
+
+#### Payment Method Not Found
+```http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Not Found",
+  "details": "Payment method with ID pm_invalid123 not found"
+}
 ```
 
 ---
@@ -584,12 +793,13 @@ curl -X GET "https://api.example.com/bridge-payment/payment-methods/customer/550
 
 ## Delete Payment Method
 
-Delete a payment method from both the payment provider and local database. **Security requirement**: Both payment method ID and customer ID must be provided.
+Delete a payment method from both the payment provider and local database with simplified ownership validation.
 
 ### Request
 
 ```http
-DELETE /bridge-payment/payment-methods/{id}
+DELETE /bridge-payment/payment-methods/:id
+DELETE /bridge-payment/payment-methods/:id?token=<guest_token>
 ```
 
 #### Path Parameters
@@ -602,23 +812,13 @@ DELETE /bridge-payment/payment-methods/{id}
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `customer_id` | string | Yes* | Stripe customer ID (e.g., cus_xxx) |
-
-*Can also be provided in request body
+| `token` | string | No* | Guest access token (*required for guest users) |
 
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Optional for authenticated users
+Authorization: Bearer <token>  # Required for authenticated users
 Content-Type: application/json
-```
-
-#### Request Body (Alternative)
-
-```json
-{
-  "customer_id": "cus_SOM4d5lcH8WRu3"
-}
 ```
 
 ### Response
@@ -630,28 +830,38 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "Payment method deleted successfully"
+  "message": "Payment method deleted successfully",
+  "id": "pm_1234567890"
 }
 ```
 
 ### Examples
 
-#### Delete with Query Parameter (Recommended)
+#### Delete Authenticated User Payment Method
 ```bash
-curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_1234567890?customer_id=cus_SOM4d5lcH8WRu3" \
+curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
   -H "Authorization: Bearer your_token_here" \
   -H "Content-Type: application/json"
 ```
 
-#### Delete with Request Body
+#### Delete Guest Payment Method with Token
 ```bash
-curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
-  -H "Authorization: Bearer your_token_here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "customer_id": "cus_SOM4d5lcH8WRu3"
-  }'
+curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_guest_123?token=guest_token_here" \
+  -H "Content-Type: application/json"
 ```
+
+### Access Control
+
+- **Authenticated Users**: Can only delete their own payment methods (user_id match)
+- **Guest Users with Tokens**: Can only delete payment methods where guest_email matches their token email
+- **Admin Users**: Can delete any payment method
+- **Anonymous Users**: Cannot delete payment methods
+
+### Provider Integration
+
+- **Best Effort Deletion**: Attempts to delete from payment provider (Stripe, etc.)
+- **Graceful Fallback**: Continues with database deletion even if provider deletion fails
+- **No Customer ID Required**: Simplified compared to previous version
 
 ---
 
@@ -686,21 +896,33 @@ curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_123456
 
 ### Example Error Responses
 
-#### Missing Customer ID (Security)
+#### Authentication Required
 ```http
-HTTP/1.1 400 Bad Request
+HTTP/1.1 401 Unauthorized
 Content-Type: application/json
 ```
 
 ```json
 {
-  "error": "Bad Request",
-  "message": "Customer ID is required. Provide it via query parameter (?customer_id=cus_xxx) or in request body.",
-  "timestamp": "2025-01-15T18:00:00Z"
+  "error": "Authentication Required",
+  "details": "Authentication required to delete payment method"
 }
 ```
 
-#### Customer Not Found
+#### Access Denied
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Access Denied",
+  "details": "Insufficient privileges to delete this payment method"
+}
+```
+
+#### Payment Method Not Found
 ```http
 HTTP/1.1 404 Not Found
 Content-Type: application/json
@@ -709,8 +931,7 @@ Content-Type: application/json
 ```json
 {
   "error": "Not Found",
-  "message": "Customer not found. Provided ID: cus_invalid123. Use the internal customer ID (UUID), not the provider customer ID.",
-  "timestamp": "2025-01-15T18:00:00Z"
+  "details": "Payment method with ID pm_invalid123 not found"
 }
 ```
 
@@ -786,9 +1007,22 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   }'
 ```
 
-#### Step 4: Delete Payment Method (if needed)
+#### Step 4: Update Payment Method (if needed)
 ```bash
-curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_1234567890?customer_id=cus_SOM4d5lcH8WRu3" \
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_default": true,
+    "metadata": {
+      "nickname": "Primary business card"
+    }
+  }'
+```
+
+#### Step 5: Delete Payment Method (if needed)
+```bash
+curl -X DELETE "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
   -H "Authorization: Bearer your_token_here" \
   -H "Content-Type: application/json"
 ```
@@ -832,9 +1066,10 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
 
 ### Security
 - **Always use tokens**: Prefer token-based creation over direct card data
-- **Customer ID requirement**: Always provide customer_id for deletion (security measure)
+- **Ownership validation**: Users can only delete their own payment methods
+- **Guest token support**: Secure guest access with token validation
 - **PCI compliance**: Use token-based approach to avoid PCI DSS requirements
-- **Access control**: Users can only access their own payment methods
+- **Access control**: Strict ownership validation for all operations
 
 ### Payment Method Management
 - **Attach to customers**: Always attach payment methods to customers for better organization
@@ -919,6 +1154,8 @@ X-RateLimit-Reset: 1642694400
 - **Advanced Filtering**: Added search, payment type, and card brand filtering capabilities
 - **Performance Optimization**: Database indexes and query optimization
 - **Improved Pagination**: Cursor-based pagination with hasMore indicator
+- **Payment Method Updates**: PUT endpoint for updating local fields (is_default, billing_address_id, metadata)
+- **Simplified DELETE**: Removed complex customer_id requirement, added guest token support
 
 #### 🔧 Improvements
 - **Configurable Timeouts**: AUTH_TIMEOUT environment variable for slow backends
@@ -937,3 +1174,5 @@ X-RateLimit-Reset: 1642694400
 - **Database Indexes**: Optimized indexes for payment method queries
 - **Error Responses**: Consistent error format across all endpoints
 - **Environment Variables**: New configuration options for timeouts and formats
+- **Repository Methods**: Added unsetDefaultForUser and unsetDefaultForGuest methods
+- **Ownership Validation**: Consistent validation logic across GET, PUT, and DELETE operations
