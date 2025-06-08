@@ -527,4 +527,113 @@ export class PaymentRepository extends BaseRepository<'payments'> {
 
     return null;
   }
+
+  // Find payments by reference code
+  async findByReferenceCode(referenceCode: string, limit = 50): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where('reference_code', '=', referenceCode)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Find payments by category
+  async findByCategory(category: string, limit = 50): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where('category', '=', category)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Find payments by concept
+  async findByConcept(concept: string, limit = 50): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where('concept', '=', concept)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Find payments by tags (contains search)
+  async findByTags(tags: string, limit = 50): Promise<PaymentTable[]> {
+    return await this.db
+      .selectFrom('payments')
+      .selectAll()
+      .where('tags', 'like', `%${tags}%`)
+      .orderBy('created_at', 'desc')
+      .limit(limit)
+      .execute();
+  }
+
+  // Get analytics by category
+  async getAnalyticsByCategory(startDate?: Date, endDate?: Date) {
+    let query = this.db
+      .selectFrom('payments')
+      .select([
+        'category',
+        this.db.fn.count('id').as('count'),
+        this.db.fn.sum('amount_cents').as('total_amount'),
+        this.db.fn.avg('amount_cents').as('average_amount')
+      ])
+      .where('status', '=', 'completed')
+      .groupBy('category');
+
+    if (startDate) {
+      query = query.where('created_at', '>=', startDate.toISOString());
+    }
+    if (endDate) {
+      query = query.where('created_at', '<=', endDate.toISOString());
+    }
+
+    const results = await query.execute();
+
+    return results.map(result => ({
+      category: result.category,
+      count: Number(result.count),
+      total_amount: Number(result.total_amount || 0),
+      average_amount: Number(result.average_amount || 0)
+    }));
+  }
+
+  // Get analytics by reference code
+  async getAnalyticsByReferenceCode(startDate?: Date, endDate?: Date) {
+    let query = this.db
+      .selectFrom('payments')
+      .select([
+        'reference_code',
+        'concept',
+        'category',
+        this.db.fn.count('id').as('count'),
+        this.db.fn.sum('amount_cents').as('total_amount'),
+        this.db.fn.avg('amount_cents').as('average_amount')
+      ])
+      .where('status', '=', 'completed')
+      .where('reference_code', 'is not', null)
+      .groupBy(['reference_code', 'concept', 'category']);
+
+    if (startDate) {
+      query = query.where('created_at', '>=', startDate.toISOString());
+    }
+    if (endDate) {
+      query = query.where('created_at', '<=', endDate.toISOString());
+    }
+
+    const results = await query.execute();
+
+    return results.map(result => ({
+      reference_code: result.reference_code,
+      concept: result.concept,
+      category: result.category,
+      count: Number(result.count),
+      total_amount: Number(result.total_amount || 0),
+      average_amount: Number(result.average_amount || 0)
+    }));
+  }
 }

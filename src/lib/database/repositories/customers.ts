@@ -88,11 +88,19 @@ export class CustomerRepository extends BaseRepository<'provider_customers'> {
 
   // Find customers by user ID
   async findByUserId(userId: string): Promise<CustomerTable[]> {
+    console.log('🔍 CustomerRepository.findByUserId called with:', userId);
+
     const results = await this.db
       .selectFrom('provider_customers')
       .selectAll()
       .where('user_id', '=', userId)
       .execute();
+
+    console.log('📋 CustomerRepository.findByUserId results:', {
+      userId,
+      count: results.length,
+      results: results.map(r => ({ id: r.id, user_id: r.user_id, provider_id: r.provider_id, is_guest: r.is_guest }))
+    });
 
     return results as CustomerTable[];
   }
@@ -191,16 +199,20 @@ export class CustomerRepository extends BaseRepository<'provider_customers'> {
     customers: CustomerTable[];
     total: number;
   }> {
+    console.log('🔍 CustomerRepository.list called with options:', options);
+
     let query = this.db
       .selectFrom('provider_customers')
       .selectAll();
 
     // Apply filters
     if (options.userId) {
+      console.log('🔍 Filtering by userId:', options.userId);
       query = query.where('user_id', '=', options.userId);
     }
 
     if (options.isGuest !== undefined) {
+      console.log('🔍 Filtering by isGuest:', options.isGuest);
       query = query.where('is_guest', '=', options.isGuest ? 1 : 0);
     }
 
@@ -222,6 +234,13 @@ export class CustomerRepository extends BaseRepository<'provider_customers'> {
       query.execute(),
       countQuery
     ]);
+
+    console.log('📋 CustomerRepository.list results:', {
+      options,
+      count: customers.length,
+      total: countResult?.count || 0,
+      customers: customers.map(c => ({ id: c.id, user_id: c.user_id, provider_id: c.provider_id, is_guest: c.is_guest }))
+    });
 
     return {
       customers: customers as CustomerTable[],

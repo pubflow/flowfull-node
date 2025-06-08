@@ -67,7 +67,12 @@ const createPaymentIntentSchema = z.object({
     email: z.string().email(),
     name: z.string().min(1),
     phone: z.string().optional()
-  }).optional()
+  }).optional(),
+  // Enhanced tracking fields for analytics
+  concept: z.string().optional(), // Human-readable concept (e.g., "Monthly Subscription", "Donation")
+  reference_code: z.string().optional(), // Machine-readable code for analytics (e.g., "donation_general", "subscription_monthly")
+  category: z.string().optional(), // High-level category (e.g., "donation", "subscription", "purchase")
+  tags: z.string().optional() // Comma-separated tags for flexible categorization
 });
 
 const confirmPaymentIntentSchema = z.object({
@@ -83,6 +88,86 @@ const updatePaymentIntentSchema = z.object({
   setup_future_usage: z.enum(['on_session', 'off_session']).optional(),
   customer_id: z.string().optional(),
   metadata: z.record(z.any()).optional()
+});
+
+// Debug endpoint to check user context
+payments.get('/payments/debug-user', optionalAuth(), async (c) => {
+  try {
+    const user = c.get('user');
+    const session = c.get('session');
+    const isGuest = c.get('is_guest');
+    const userContext = getUserContext(c);
+
+    return c.json({
+      raw_context: {
+        hasUser: !!user,
+        user: user ? {
+          id: user.id,
+          userType: user.userType,
+          email: user.email
+        } : null,
+        hasSession: !!session,
+        isGuest
+      },
+      user_context: userContext,
+      auth_headers: {
+        authorization: c.req.header('Authorization'),
+        sessionId: c.req.header('X-Session-ID'),
+        sessionParam: c.req.query('session_id')
+      }
+    });
+  } catch (error: any) {
+    return c.json({
+      error: error.message || 'Debug failed'
+    }, 400);
+  }
+});
+
+// Debug endpoint to check payment method and customer info
+payments.get('/payments/debug/:payment_method_id', optionalAuth(), async (c) => {
+  try {
+    const paymentMethodId = c.req.param('payment_method_id');
+    const user = c.get('user');
+
+    console.log('🔍 Debug payment method:', paymentMethodId);
+    console.log('👤 User:', user ? `${user.id} (${user.userType})` : 'none');
+
+    // Get payment adapter
+    const adapter = getPaymentAdapter('stripe');
+
+    // Get payment method from Stripe
+    const paymentMethod = await adapter.getPaymentMethod(paymentMethodId);
+
+    // Get customer from our database if user exists
+    let dbCustomer = null;
+    if (user) {
+      const { getCustomerRepository } = await import('@/lib/database/repositories');
+      const customerRepo = await getCustomerRepository();
+      dbCustomer = await customerRepo.findByUserAndProvider(user.id, 'stripe');
+    }
+
+    return c.json({
+      payment_method: {
+        id: paymentMethod.id,
+        type: paymentMethod.type,
+        customer_from_stripe: (paymentMethod.provider_data as any)?.customer || null
+      },
+      customer_from_db: dbCustomer ? {
+        id: dbCustomer.id,
+        provider_customer_id: dbCustomer.provider_customer_id,
+        user_id: dbCustomer.user_id
+      } : null,
+      user_context: user ? {
+        id: user.id,
+        userType: user.userType
+      } : null
+    });
+  } catch (error: any) {
+    console.error('Debug endpoint error:', error);
+    return c.json({
+      error: error.message || 'Debug failed'
+    }, 400);
+  }
 });
 
 // Create payment intent (without middleware for testing)
@@ -106,7 +191,7 @@ payments.post('/payments/intents-test', async (c) => {
 });
 
 // Create payment intent
-payments.post('/payments/intents', async (c) => {
+payments.post('/payments/intents', optionalAuth(), async (c) => {
   try {
     console.log('🔍 Parsing request body with c.req.json()...');
     const body = await c.req.json();
@@ -115,33 +200,55 @@ payments.post('/payments/intents', async (c) => {
     const validatedData = createPaymentIntentSchema.parse(body);
     console.log('✅ Validated data:', JSON.stringify(validatedData, null, 2));
 
+    // Debug: Check what's in the context
+    const user = c.get('user');
+    const session = c.get('session');
+    const isGuest = c.get('is_guest');
+    console.log('🔍 Context debug:', {
+      hasUser: !!user,
+      userInfo: user ? { id: user.id, userType: user.userType } : null,
+      hasSession: !!session,
+      isGuest
+    });
+
     // Get initial user context
     let userContext = getUserContext(c);
     console.log('👤 Initial user context:', userContext);
 
-    // Manual guest checkout validation
+    // Handle guest vs authenticated user logic
     if (!userContext.isAuthenticated) {
       console.log('🔍 User not authenticated, treating as guest');
-      c.set('is_guest', true);
 
+      // For guest payments, we need guest_data
       const guestData = validatedData.guest_data;
       console.log('📧 Guest data:', guestData);
 
-      if (guestData) {
-        validateGuestData(guestData);
-
-        // Check guest payment limits
-        if (guestData.email) {
-          await checkGuestPaymentLimits(guestData.email);
-        }
-
-        // Set guest data in context
-        c.set('guest_data', guestData);
+      if (!guestData) {
+        throw new HTTPException(400, {
+          message: 'Guest data is required for guest payments'
+        });
       }
+
+      validateGuestData(guestData);
+
+      // Check guest payment limits
+      if (guestData.email) {
+        await checkGuestPaymentLimits(guestData.email);
+      }
+
+      // Set guest data in context
+      c.set('guest_data', guestData);
+      c.set('is_guest', true);
 
       // Update user context after setting guest state
       userContext = getUserContext(c);
-      console.log('👤 Updated user context:', userContext);
+      console.log('👤 Updated user context (guest):', userContext);
+    } else {
+      console.log('✅ User is authenticated, proceeding with authenticated payment');
+      console.log('👤 Authenticated user:', {
+        userId: userContext.userId,
+        isAuthenticated: userContext.isAuthenticated
+      });
     }
 
     // Get payment adapter (without health check)
@@ -159,12 +266,65 @@ payments.post('/payments/intents', async (c) => {
       });
     }
 
+    // Validate payment method and get customer info if provided
+    let customerId: string | undefined;
+    if (validatedData.payment_method_id) {
+      console.log('🔍 Validating payment method:', validatedData.payment_method_id);
+      try {
+        // Try to get the payment method to validate it exists and get customer info
+        const paymentMethod = await adapter.getPaymentMethod(validatedData.payment_method_id);
+        console.log('✅ Payment method validated');
+
+        // Check if payment method belongs to a customer
+        if (paymentMethod.provider_data && (paymentMethod.provider_data as any).customer) {
+          customerId = (paymentMethod.provider_data as any).customer;
+          console.log('🔍 Payment method belongs to customer (from Stripe):', customerId);
+        }
+
+        // Alternative: Get customer from our database if user is authenticated
+        if (!customerId && userContext.isAuthenticated && userContext.userId) {
+          console.log('🔍 Looking for customer in our database for user:', userContext.userId);
+          try {
+            const { getCustomerRepository } = await import('@/lib/database/repositories');
+            const customerRepo = await getCustomerRepository();
+
+            const existingCustomer = await customerRepo.findByUserAndProvider(
+              userContext.userId,
+              validatedData.provider_id
+            );
+
+            if (existingCustomer) {
+              customerId = existingCustomer.provider_customer_id;
+              console.log('✅ Found customer in database:', customerId);
+            }
+          } catch (dbError) {
+            console.log('⚠️ Could not find customer in database:', dbError);
+          }
+        }
+      } catch (pmError: any) {
+        console.error('❌ Payment method validation failed:', pmError);
+        throw new HTTPException(400, {
+          message: `Invalid payment method: ${pmError.message || 'Payment method not found'}`
+        });
+      }
+    }
+
     // Create payment intent with provider
+    console.log('🔄 Creating Stripe payment intent...');
+    console.log('👤 Using customer ID:', customerId || 'none');
+    console.log('💳 Payment method ID:', validatedData.payment_method_id || 'none');
+    console.log('🎯 User context:', {
+      isAuthenticated: userContext.isAuthenticated,
+      userId: userContext.userId,
+      isGuest: userContext.isGuest
+    });
+
     const paymentIntent = await adapter.createPaymentIntent({
       amount_cents: validatedData.amount_cents,
       currency: validatedData.currency,
       description: validatedData.description,
       payment_method_id: validatedData.payment_method_id,
+      customer_id: customerId, // ✅ Include customer_id if available
       return_url: validatedData.return_url,
       metadata: validatedData.metadata
     });
@@ -179,6 +339,53 @@ payments.post('/payments/intents', async (c) => {
       isGuest: userContext.isGuest,
       userId: userContext.userId
     });
+
+    // Debug: Log the data we're trying to insert
+    console.log('🔍 Payment data for DB insert:', {
+      user_id: userContext.userId,
+      payment_method_id: validatedData.payment_method_id,
+      provider_id: validatedData.provider_id,
+      organization_id: userContext.organizationId
+    });
+
+    // Verify foreign key references exist
+    if (validatedData.payment_method_id) {
+      console.log('🔍 Checking if payment method exists in our database...');
+      try {
+        const { getPaymentMethodRepository } = await import('@/lib/database/repositories');
+        const pmRepo = await getPaymentMethodRepository();
+
+        // Use provider_id directly (e.g., "stripe") - no need for UUID lookup
+        const existingPM = await pmRepo.findByProviderPaymentMethodId(validatedData.provider_id, validatedData.payment_method_id);
+
+        if (!existingPM) {
+          console.log('❌ Payment method not found in our database:', validatedData.payment_method_id);
+          throw new HTTPException(400, {
+            message: 'El método de pago seleccionado no está registrado en el sistema. Por favor, agrega el método de pago primero.'
+          });
+        }
+
+        console.log('✅ Payment method found in database:', {
+          id: existingPM.id,
+          provider_payment_method_id: existingPM.provider_payment_method_id,
+          user_id: existingPM.user_id,
+          provider_id: existingPM.provider_id
+        });
+
+        // Use the internal payment method ID for the foreign key
+        validatedData.payment_method_id = existingPM.id;
+        console.log('🔄 Using internal payment method ID:', existingPM.id);
+
+      } catch (pmError: any) {
+        console.error('❌ Error checking payment method:', pmError);
+        if (pmError instanceof HTTPException) {
+          throw pmError;
+        }
+        throw new HTTPException(400, {
+          message: 'Error al verificar el método de pago'
+        });
+      }
+    }
 
     if (userContext.isGuest) {
       // Guest payment
@@ -196,7 +403,7 @@ payments.post('/payments/intents', async (c) => {
         user_id: null,
         organization_id: null,
         payment_method_id: validatedData.payment_method_id || null,
-        provider_id: adapter.getProviderId(),
+        provider_id: validatedData.provider_id, // Use provider_id directly (e.g., "stripe")
         provider_payment_id: null,
         provider_intent_id: paymentIntent.id,
         client_secret: paymentIntent.client_secret || null,
@@ -205,6 +412,11 @@ payments.post('/payments/intents', async (c) => {
         status: mapPaymentIntentStatus(paymentIntent.status),
         description: validatedData.description || null,
         error_message: null,
+        // Enhanced tracking fields
+        concept: validatedData.concept || null,
+        reference_code: validatedData.reference_code || null,
+        category: validatedData.category || null,
+        tags: validatedData.tags || null,
         is_guest_payment: false, // Will be overridden to 1 in createGuestPayment
         metadata: JSON.stringify(validatedData.metadata || {}),
         completed_at: null,
@@ -221,7 +433,7 @@ payments.post('/payments/intents', async (c) => {
         user_id: userContext.userId!,
         organization_id: null,
         payment_method_id: validatedData.payment_method_id || null,
-        provider_id: adapter.getProviderId(),
+        provider_id: validatedData.provider_id, // Use provider_id directly (e.g., "stripe")
         provider_payment_id: null,
         provider_intent_id: paymentIntent.id,
         client_secret: paymentIntent.client_secret || null,
@@ -230,6 +442,11 @@ payments.post('/payments/intents', async (c) => {
         status: mapPaymentIntentStatus(paymentIntent.status),
         description: validatedData.description || null,
         error_message: null,
+        // Enhanced tracking fields
+        concept: validatedData.concept || null,
+        reference_code: validatedData.reference_code || null,
+        category: validatedData.category || null,
+        tags: validatedData.tags || null,
         is_guest_payment: false,
         guest_data: null,
         guest_email: null,
@@ -265,8 +482,22 @@ payments.post('/payments/intents', async (c) => {
     }
 
     console.error('Create payment intent error:', error);
+
+    // Handle specific Stripe errors
+    if (error.message && error.message.includes('No such PaymentMethod')) {
+      throw new HTTPException(400, {
+        message: 'El método de pago seleccionado no es válido o ha expirado. Por favor, selecciona otro método de pago.'
+      });
+    }
+
+    if (error.message && error.message.includes('Invalid request')) {
+      throw new HTTPException(400, {
+        message: `Error en la solicitud: ${error.message}`
+      });
+    }
+
     throw new HTTPException(500, {
-      message: 'Failed to create payment intent'
+      message: 'Error al crear el pago. Por favor, intenta de nuevo.'
     });
   }
 });

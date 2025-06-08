@@ -114,6 +114,10 @@ export class BridgeValidator {
         } else if (response.status === 401 || response.status === 403) {
           // Don't retry for authentication errors
           return null;
+        } else if (response.status === 404) {
+          // Auth service not available - return null to trigger fallback
+          console.warn('Auth service not available (404), using fallback authentication');
+          return null;
         } else {
           throw new Error(`Validation request failed: ${response.status} ${response.statusText}`);
         }

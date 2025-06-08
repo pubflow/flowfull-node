@@ -27,6 +27,11 @@ export interface PaymentTable {
   status: string;
   description: string | null;
   error_message: string | null;
+  // Enhanced tracking fields for analytics
+  concept: string | null; // Human-readable concept (e.g., "Monthly Subscription", "Product Purchase", "Donation")
+  reference_code: string | null; // Machine-readable code for analytics (e.g., "subscription_monthly", "donation_campaign_2024")
+  category: string | null; // High-level category (e.g., "subscription", "donation", "purchase", "refund", "fee")
+  tags: string | null; // Comma-separated tags for flexible categorization (e.g., "promotion,summer,discount")
   is_guest_payment: boolean;
   guest_data: string | null; // JSON string
   guest_email: string | null;

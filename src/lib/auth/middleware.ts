@@ -300,13 +300,44 @@ export function getUserContext(c: Context): {
   session?: SessionData;
   guestData?: any;
 } {
+  // Try to get user from optionalAuth middleware first
+  const user = c.get('user');
   const session = c.get('session');
+
+  // If we have a user from optionalAuth, use that
+  if (user) {
+    console.log('🔍 getUserContext: Found user from optionalAuth:', {
+      id: user.id,
+      userType: user.userType,
+      email: user.email
+    });
+
+    return {
+      isAuthenticated: true,
+      isGuest: false,
+      userId: user.id,
+      organizationId: user.organization_id,
+      session: user, // Use user object as session
+      guestData: undefined
+    };
+  }
+
+  // Fallback to legacy session-based context
+  const legacySession = session;
+  const isGuest = c.get('is_guest') || false;
+
+  console.log('🔍 getUserContext: Using legacy context:', {
+    hasSession: !!legacySession,
+    isGuest,
+    userId: c.get('user_id')
+  });
+
   return {
-    isAuthenticated: !!session,
-    isGuest: c.get('is_guest') || false,
+    isAuthenticated: !!legacySession && !isGuest,
+    isGuest,
     userId: c.get('user_id'),
-    organizationId: session?.organization_id,
-    session,
+    organizationId: legacySession?.organization_id,
+    session: legacySession,
     guestData: c.get('guest_data')
   };
 }
