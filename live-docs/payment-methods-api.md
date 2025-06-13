@@ -43,6 +43,147 @@ https://your-domain.com/bridge-payment/payment-methods
 
 ---
 
+## Billing Address Integration (NEW)
+
+The Payment Methods API now supports optional billing address integration, allowing you to associate payment methods with existing billing addresses for better organization and user experience.
+
+### How Billing Address Integration Works
+
+1. **Optional Association**: Payment methods can optionally be linked to existing billing addresses
+2. **Address Reuse**: Users can reuse saved addresses for multiple payment methods
+3. **Automatic Merging**: When both `billing_address_id` and `billing_details` are provided, they are intelligently merged
+4. **Access Control**: Users can only associate addresses they own (user_id match for authenticated users, guest_email match for guests)
+
+### Benefits
+
+- **Reduced Data Entry**: Users don't need to re-enter address information
+- **Consistency**: Ensures address information is consistent across payment methods
+- **Organization**: Better organization of payment methods by billing address
+- **User Experience**: Streamlined checkout and payment method management
+
+### Usage Patterns
+
+#### Pattern 1: Use Existing Address Only
+```json
+{
+  "billing_address_id": "addr_billing_123",
+  "billing_details": {
+    "name": "John Doe",
+    "email": "john@example.com"
+  }
+}
+```
+
+#### Pattern 2: Create New Address Inline
+```json
+{
+  "billing_details": {
+    "name": "John Doe",
+    "email": "john@example.com",
+    "address": {
+      "line1": "123 Main St",
+      "city": "New York",
+      "postal_code": "10001",
+      "country": "US"
+    }
+  }
+}
+```
+
+#### Pattern 3: Override Address Details
+```json
+{
+  "billing_address_id": "addr_billing_123",
+  "billing_details": {
+    "name": "Different Name",
+    "email": "different@example.com",
+    "phone": "+1-555-999-8888"
+  }
+}
+```
+
+### Response Fields
+
+When a payment method is associated with a billing address, the response includes:
+
+- `billing_address_id`: UUID of the associated billing address
+- `guest_name`: Name from guest payment methods (for guest users)
+- `metadata`: Custom metadata including optional `nickname` for card aliases
+
+---
+
+## Card Nicknames and Aliases (NEW)
+
+The Payment Methods API supports custom nicknames and aliases for payment methods through the `metadata` field, making it easier for users to identify and manage their saved cards.
+
+### How Card Nicknames Work
+
+1. **Metadata Storage**: Nicknames are stored in the `metadata.nickname` field
+2. **User-Friendly Names**: Users can assign meaningful names like "My primary card", "Travel card", "Business expenses"
+3. **Optional Feature**: Nicknames are completely optional and don't affect payment processing
+4. **Flexible Metadata**: The `metadata` field supports additional custom properties for categorization
+
+### Nickname Examples
+
+#### Common Nickname Patterns
+```json
+{
+  "metadata": {
+    "nickname": "My primary card"
+  }
+}
+```
+
+#### Advanced Metadata Usage
+```json
+{
+  "metadata": {
+    "nickname": "Business Travel Card",
+    "category": "business",
+    "department": "sales",
+    "notes": "For client meetings and travel expenses",
+    "spending_limit": "monthly"
+  }
+}
+```
+
+### Frontend Integration
+
+#### Display Nicknames in UI
+```javascript
+// Display payment method with nickname
+const displayName = paymentMethod.metadata?.nickname ||
+  `${paymentMethod.card_brand} •••• ${paymentMethod.last_four}`;
+
+// Example: "My primary card" or "Visa •••• 4242"
+```
+
+#### Update Nicknames
+```javascript
+// Update payment method nickname
+await fetch(`/bridge-payment/payment-methods/${paymentMethodId}`, {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${sessionId}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    metadata: {
+      nickname: "Updated card name"
+    }
+  })
+});
+```
+
+### Benefits
+
+- **Better UX**: Users can easily identify their cards
+- **Organization**: Categorize cards by purpose (business, personal, travel)
+- **Personalization**: Users can use names that make sense to them
+- **Flexibility**: Support for additional metadata beyond just nicknames
+
+---
+
 ## Guest Token Authentication
 
 For guest users who need to access their payment methods after checkout, the API supports token-based authentication. This allows guests to view and manage their payment information without creating a full account.
@@ -122,7 +263,15 @@ GET /bridge-payment/payment-methods?token=<guest_token>
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Required for authenticated users
+# Option 1: Authorization Bearer (standard)
+Authorization: Bearer <sessionId>
+
+# Option 2: Custom session header
+X-Session-ID: <sessionId>
+
+# Option 3: Query parameter (alternative)
+# Use ?session_id=<sessionId> instead of headers
+
 Content-Type: application/json
 ```
 
@@ -152,6 +301,12 @@ Content-Type: application/json
       "is_default": true,
       "is_guest": true,
       "guest_email": "guest@example.com",
+      "guest_name": "John Doe",
+      "billing_address_id": "addr_billing_123",
+      "metadata": {
+        "nickname": "My primary card",
+        "category": "business"
+      },
       "created_at": "2025-01-15T10:30:00Z",
       "updated_at": "2025-01-15T10:35:00Z"
     }
@@ -177,10 +332,20 @@ Content-Type: application/json
 
 ### Examples
 
-#### Authenticated User Payment Methods
+#### Authenticated User Payment Methods (Multiple Auth Methods)
 ```bash
+# Method 1: Authorization Bearer
 curl -X GET "https://api.example.com/bridge-payment/payment-methods?page=1&limit=20&payment_type=card" \
-  -H "Authorization: Bearer your_token_here" \
+  -H "Authorization: Bearer your_session_id_here" \
+  -H "Content-Type: application/json"
+
+# Method 2: X-Session-ID Header
+curl -X GET "https://api.example.com/bridge-payment/payment-methods?page=1&limit=20&payment_type=card" \
+  -H "X-Session-ID: your_session_id_here" \
+  -H "Content-Type: application/json"
+
+# Method 3: Query Parameter
+curl -X GET "https://api.example.com/bridge-payment/payment-methods?page=1&limit=20&payment_type=card&session_id=your_session_id_here" \
   -H "Content-Type: application/json"
 ```
 
@@ -276,7 +441,7 @@ Content-Type: application/json
 #### Get Payment Method for Authenticated User
 ```bash
 curl -X GET "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
-  -H "Authorization: Bearer your_token_here" \
+  -H "Authorization: Bearer your_session_id_here" \
   -H "Content-Type: application/json"
 ```
 
@@ -314,7 +479,15 @@ PUT /bridge-payment/payment-methods/:id?token=<guest_token>
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Required for authenticated users
+# Option 1: Authorization Bearer (standard)
+Authorization: Bearer <sessionId>
+
+# Option 2: Custom session header
+X-Session-ID: <sessionId>
+
+# Option 3: Query parameter (alternative)
+# Use ?session_id=<sessionId> instead of headers
+
 Content-Type: application/json
 ```
 
@@ -521,13 +694,14 @@ Content-Type: application/json
 | `type` | string | Yes | Payment method type: `credit_card`, `bank_account`, `paypal` |
 | `provider_id` | string | Yes | Payment provider (e.g., "stripe") |
 | `payment_method_token` | string | Yes | Secure token from frontend |
-| `billing_details` | object | No | Billing information |
+| `billing_address_id` | string | No | **NEW**: UUID of existing billing address to associate |
+| `billing_details` | object | No | Billing information (merged with address if `billing_address_id` provided) |
 | `billing_details.name` | string | Yes | Cardholder name |
 | `billing_details.email` | string | Yes | Email address |
 | `billing_details.phone` | string | No | Phone number |
-| `billing_details.address` | object | No | Billing address |
+| `billing_details.address` | object | No | Billing address (optional if using `billing_address_id`) |
 | `save_for_future` | boolean | No | Save for future use (default: false) |
-| `metadata` | object | No | Additional metadata |
+| `metadata` | object | No | Additional metadata (supports `nickname` for card aliases) |
 
 ### Response
 
@@ -548,6 +722,12 @@ Content-Type: application/json
   "is_default": false,
   "is_guest": true,
   "guest_email": "customer@example.com",
+  "guest_name": "John Doe",
+  "billing_address_id": "addr_billing_123",
+  "metadata": {
+    "nickname": "My primary business card",
+    "category": "business"
+  },
   "created_at": "2025-01-15T10:30:00Z"
 }
 ```
@@ -585,6 +765,51 @@ curl -X POST "https://api.example.com/bridge-payment/payment-methods" \
       "name": "Guest User",
       "email": "guest@example.com"
     }
+  }'
+```
+
+#### With Existing Billing Address (NEW)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payment-methods" \
+  -H "Authorization: Bearer your_session_id_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "550e8400-e29b-41d4-a716-446655440000",
+    "type": "credit_card",
+    "provider_id": "stripe",
+    "payment_method_token": "pm_card_visa",
+    "billing_address_id": "addr_billing_123",
+    "billing_details": {
+      "name": "John Doe",
+      "email": "john@example.com"
+    },
+    "metadata": {
+      "nickname": "My primary business card"
+    },
+    "save_for_future": true
+  }'
+```
+
+#### With Card Nickname/Alias (NEW)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payment-methods" \
+  -H "Authorization: Bearer your_session_id_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "credit_card",
+    "provider_id": "stripe",
+    "payment_method_token": "pm_card_amex",
+    "billing_details": {
+      "name": "John Doe",
+      "email": "john@example.com",
+      "phone": "+1-555-123-4567"
+    },
+    "metadata": {
+      "nickname": "Travel Card",
+      "category": "personal",
+      "notes": "For business travel expenses"
+    },
+    "save_for_future": true
   }'
 ```
 
@@ -817,7 +1042,15 @@ DELETE /bridge-payment/payment-methods/:id?token=<guest_token>
 #### Headers
 
 ```http
-Authorization: Bearer <token>  # Required for authenticated users
+# Option 1: Authorization Bearer (standard)
+Authorization: Bearer <sessionId>
+
+# Option 2: Custom session header
+X-Session-ID: <sessionId>
+
+# Option 3: Query parameter (alternative)
+# Use ?session_id=<sessionId> instead of headers
+
 Content-Type: application/json
 ```
 
@@ -1075,6 +1308,9 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
 - **Attach to customers**: Always attach payment methods to customers for better organization
 - **Handle duplicates**: Check for existing payment methods before creating new ones
 - **Cleanup**: Implement cleanup policies for unused payment methods
+- **Billing Address Integration**: Use `billing_address_id` to associate payment methods with saved addresses
+- **Card Nicknames**: Encourage users to add nicknames for better payment method identification
+- **Metadata Usage**: Leverage metadata for categorization and custom business logic
 
 ### Integration
 - **Frontend tokens**: Use Stripe Elements or similar to generate secure tokens
@@ -1149,13 +1385,16 @@ X-RateLimit-Reset: 1642694400
 ### Version 2.0.0 - June 4, 2025
 
 #### 🆕 New Features
-- **Guest Token Authentication**: Support for token-based guest payment method access
+- **Guest Token Authentication**: Support for token-based guest payment method access with multiple auth methods (Bearer, X-Session-ID, query parameter)
+- **Billing Address Integration**: Optional association of payment methods with existing billing addresses via `billing_address_id`
+- **Card Nicknames/Aliases**: Support for custom payment method nicknames through `metadata.nickname` field
 - **Enhanced Response Format**: Standardized API responses with configurable ROW_MODE
 - **Advanced Filtering**: Added search, payment type, and card brand filtering capabilities
 - **Performance Optimization**: Database indexes and query optimization
 - **Improved Pagination**: Cursor-based pagination with hasMore indicator
 - **Payment Method Updates**: PUT endpoint for updating local fields (is_default, billing_address_id, metadata)
 - **Simplified DELETE**: Removed complex customer_id requirement, added guest token support
+- **Guest Name Support**: Added `guest_name` field for better guest user identification
 
 #### 🔧 Improvements
 - **Configurable Timeouts**: AUTH_TIMEOUT environment variable for slow backends

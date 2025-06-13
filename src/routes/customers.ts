@@ -2,13 +2,9 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
-import {
-  authMiddleware,
-  optionalAuthMiddleware,
-  getUserContext
-} from '@/lib/auth/middleware';
-import { getPaymentAdapter } from '@/lib/providers/factory';
-import { getCustomerRepository } from '@/lib/database/repositories';
+import { optionalAuth } from '../lib/auth/auth-middleware.js';
+import { getPaymentAdapter } from '../lib/providers/factory.js';
+import { getCustomerRepository } from '../lib/database/repositories/index.js';
 import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter.js';
 
 const customers = new Hono();
@@ -33,9 +29,10 @@ const updateCustomerSchema = z.object({
 });
 
 // Create customer
-customers.post('/', optionalAuthMiddleware, async (c) => {
+customers.post('/', optionalAuth(), async (c) => {
   try {
     const body = await c.req.json();
+    const user = c.get('user'); // Get user directly from optionalAuth middleware
 
     console.log('📥 Raw request body:', JSON.stringify(body, null, 2));
     console.log('🔍 Body validation check:', {
@@ -48,7 +45,6 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
     });
 
     const validatedData = createCustomerSchema.parse(body);
-    const userContext = getUserContext(c);
 
     console.log('👤 Creating customer...');
     console.log('📧 Customer data:', {
@@ -61,19 +57,17 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
       is_guest: validatedData.is_guest
     });
 
-    // Fix: Determine if this is actually a guest
-    // TEMPORAL FALLBACK: Si la validación de sesión falla pero tenemos sessionId, asumir usuario autenticado
-    const hasSessionId = c.req.query('session_id') || c.req.query('sessionId');
-    const isLikelyAuthenticated = userContext.isAuthenticated || (hasSessionId && !validatedData.is_guest);
+    // Determine if this is actually a guest based on user authentication
+    const isAuthenticated = !!user;
+    const isActuallyGuest = !isAuthenticated || validatedData.is_guest;
 
     console.log('🔍 Authentication check:', {
-      userContext_isAuthenticated: userContext.isAuthenticated,
-      hasSessionId: !!hasSessionId,
+      user_authenticated: isAuthenticated,
+      user_id: user?.id,
+      user_type: user?.userType,
       validatedData_is_guest: validatedData.is_guest,
-      isLikelyAuthenticated
+      isActuallyGuest
     });
-
-    const isActuallyGuest = !isLikelyAuthenticated || validatedData.is_guest;
 
     // Validate if customer already exists with same provider_id, is_guest, and email
     const customerRepo = await getCustomerRepository();
@@ -82,12 +76,8 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
       provider_id: validatedData.provider_id,
       is_guest: isActuallyGuest,
       email: validatedData.email,
-      userContext: {
-        isAuthenticated: userContext.isAuthenticated,
-        userId: userContext.userId,
-        isGuest: userContext.isGuest
-      },
-      validatedData_is_guest: validatedData.is_guest
+      user_id: user?.id,
+      user_type: user?.userType
     });
 
     // Check for existing customer
@@ -99,18 +89,21 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
       existingCustomer = guestCustomers.find(c => c.provider_id === validatedData.provider_id);
     } else {
       // For registered users, check by user_id and provider_id
-      // TEMPORAL FALLBACK: Si no tenemos userId del userContext, usar un valor conocido
-      const userId = userContext.userId || 'kjahsd9819868'; // Fallback al user_id conocido
+      if (!user?.id) {
+        console.error('❌ No userId available for authenticated user');
+        throw new HTTPException(401, {
+          message: 'User authentication failed - no user ID available'
+        });
+      }
 
+      const userId = user.id;
       console.log('🔍 Looking for existing customer with userId:', userId);
 
-      if (userId) {
-        const userCustomers = await customerRepo.findByUserId(userId);
-        existingCustomer = userCustomers.find(c => c.provider_id === validatedData.provider_id);
+      const userCustomers = await customerRepo.findByUserId(userId);
+      existingCustomer = userCustomers.find(c => c.provider_id === validatedData.provider_id);
 
-        console.log('📋 Found user customers:', userCustomers.length);
-        console.log('🎯 Matching customer:', existingCustomer?.id);
-      }
+      console.log('📋 Found user customers:', userCustomers.length);
+      console.log('🎯 Matching customer:', existingCustomer?.id);
     }
 
     if (existingCustomer) {
@@ -142,7 +135,7 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
         },
         {
           authenticated: !isActuallyGuest,
-          user_id: !isActuallyGuest ? (userContext.userId || 'kjahsd9819868') : undefined,
+          user_id: !isActuallyGuest ? user?.id : undefined,
           user_type: isActuallyGuest ? 'guest' : 'authenticated',
           user_email: validatedData.email,
           search_method: isActuallyGuest ? 'guest_email' : 'user_id'
@@ -163,14 +156,21 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
       metadata: validatedData.metadata || {}
     });
 
-    // TEMPORAL FALLBACK: Usar userId conocido si la validación de sesión falla
-    const userId = isActuallyGuest ? null : (userContext.userId || 'kjahsd9819868');
+    // Validar que tenemos userId para usuarios autenticados
+    if (!isActuallyGuest && !user?.id) {
+      console.error('❌ No userId available for authenticated user');
+      throw new HTTPException(401, {
+        message: 'User authentication failed - no user ID available'
+      });
+    }
+
+    const userId = isActuallyGuest ? null : user?.id;
 
     console.log('👤 Creating customer with:', {
       userId,
       isActuallyGuest,
-      userContext_userId: userContext.userId,
-      userContext_isAuthenticated: userContext.isAuthenticated
+      user_id: user?.id,
+      user_authenticated: isAuthenticated
     });
 
     const customer = await customerRepo.create({
@@ -251,10 +251,10 @@ customers.post('/', optionalAuthMiddleware, async (c) => {
 });
 
 // Get customer by ID
-customers.get('/:id', optionalAuthMiddleware, async (c) => {
+customers.get('/:id', optionalAuth(), async (c) => {
   try {
     const customerId = c.req.param('id');
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     const customerRepo = await getCustomerRepository();
     const customer = await customerRepo.findById(customerId);
@@ -266,7 +266,7 @@ customers.get('/:id', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && customer.user_id !== userContext.userId) {
+    if (user && customer.user_id !== user.id) {
       throw new HTTPException(403, {
         message: 'Access denied'
       });
@@ -296,12 +296,12 @@ customers.get('/:id', optionalAuthMiddleware, async (c) => {
 });
 
 // Update customer
-customers.put('/:id', optionalAuthMiddleware, async (c) => {
+customers.put('/:id', optionalAuth(), async (c) => {
   try {
     const customerId = c.req.param('id');
     const body = await c.req.json();
     const validatedData = updateCustomerSchema.parse(body);
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     const customerRepo = await getCustomerRepository();
     const customer = await customerRepo.findById(customerId);
@@ -313,7 +313,7 @@ customers.put('/:id', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && customer.user_id !== userContext.userId) {
+    if (user && customer.user_id !== user.id) {
       throw new HTTPException(403, {
         message: 'Access denied'
       });
@@ -361,10 +361,10 @@ customers.put('/:id', optionalAuthMiddleware, async (c) => {
 });
 
 // Delete customer
-customers.delete('/:id', optionalAuthMiddleware, async (c) => {
+customers.delete('/:id', optionalAuth(), async (c) => {
   try {
     const customerId = c.req.param('id');
-    const userContext = getUserContext(c);
+    const user = c.get('user');
 
     const customerRepo = await getCustomerRepository();
     const customer = await customerRepo.findById(customerId);
@@ -376,7 +376,7 @@ customers.delete('/:id', optionalAuthMiddleware, async (c) => {
     }
 
     // Check authorization
-    if (!userContext.isGuest && customer.user_id !== userContext.userId) {
+    if (user && customer.user_id !== user.id) {
       throw new HTTPException(403, {
         message: 'Access denied'
       });
@@ -404,29 +404,32 @@ customers.delete('/:id', optionalAuthMiddleware, async (c) => {
 });
 
 // List customers (for debugging)
-customers.get('/', optionalAuthMiddleware, async (c) => {
+customers.get('/', optionalAuth(), async (c) => {
   try {
-    const userContext = getUserContext(c);
+    const user = c.get('user');
     const customerRepo = await getCustomerRepository();
 
-    // TEMPORAL FALLBACK: Aplicar la misma lógica que en POST
-    const hasSessionId = c.req.query('session_id') || c.req.query('sessionId');
-    const isLikelyAuthenticated = userContext.isAuthenticated || !!hasSessionId;
+    const isAuthenticated = !!user;
 
     console.log('🔍 GET /customers - Authentication check:', {
-      userContext_isAuthenticated: userContext.isAuthenticated,
-      userContext_userId: userContext.userId,
-      hasSessionId: !!hasSessionId,
-      isLikelyAuthenticated
+      user_authenticated: isAuthenticated,
+      user_id: user?.id,
+      user_type: user?.userType
     });
 
     // For guests, show all guest customers
     // For authenticated users, show their customers
     const options: any = {};
 
-    if (isLikelyAuthenticated) {
-      // TEMPORAL FALLBACK: Usar userId conocido si la validación de sesión falla
-      const userId = userContext.userId || 'kjahsd9819868';
+    if (isAuthenticated) {
+      if (!user?.id) {
+        console.error('❌ No userId available for authenticated request');
+        throw new HTTPException(401, {
+          message: 'User authentication failed - no user ID available'
+        });
+      }
+
+      const userId = user.id;
       options.userId = userId;
       console.log('🔍 GET /customers - Using userId:', userId);
     } else {
@@ -478,11 +481,11 @@ customers.get('/', optionalAuthMiddleware, async (c) => {
         orderDir: 'desc'
       },
       {
-        authenticated: isLikelyAuthenticated,
-        user_id: isLikelyAuthenticated ? (userContext.userId || 'kjahsd9819868') : undefined,
-        user_type: userContext.isGuest ? 'guest' : 'authenticated',
-        user_email: undefined, // No tenemos email en userContext
-        search_method: isLikelyAuthenticated ? 'user_id' : 'guest'
+        authenticated: isAuthenticated,
+        user_id: isAuthenticated ? user?.id : undefined,
+        user_type: isAuthenticated ? user?.userType : 'guest',
+        user_email: user?.email,
+        search_method: isAuthenticated ? 'user_id' : 'guest'
       }
     ), 200);
 

@@ -131,29 +131,25 @@ async function testProviderPaymentIntent(providerId: string): Promise<ProviderTe
   
   try {
     const adapter = PaymentProviderFactory.getAdapter(providerId);
-    
-    // Create a test payment intent
-    const paymentIntent = await adapter.createPaymentIntent({
-      amount_cents: 100, // $1.00 or equivalent
-      currency: 'USD',
-      description: 'Test payment intent'
-    });
-    
-    if (!paymentIntent.id) {
+
+    // Simple connectivity test without creating payment intents
+    const healthResult = await adapter.healthCheck();
+
+    if (!healthResult.success) {
       return {
         provider_id: providerId,
-        test_name: 'Payment Intent Creation',
+        test_name: 'Provider Connectivity',
         status: 'fail',
-        message: 'Payment intent created but missing ID',
+        message: healthResult.error || 'Health check failed',
         duration_ms: Date.now() - startTime
       };
     }
-    
+
     return {
       provider_id: providerId,
-      test_name: 'Payment Intent Creation',
+      test_name: 'Provider Connectivity',
       status: 'pass',
-      message: `Payment intent created successfully (ID: ${paymentIntent.id.substring(0, 8)}...)`,
+      message: `Provider is healthy (latency: ${healthResult.latency}ms)`,
       duration_ms: Date.now() - startTime
     };
   } catch (error) {

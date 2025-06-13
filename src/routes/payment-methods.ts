@@ -5,10 +5,90 @@ import { randomUUID } from 'crypto';
 import { optionalAuth } from '../lib/auth/auth-middleware.js';
 import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter.js';
 import { getPaymentAdapter } from '../lib/providers/factory.js';
-import { getPaymentMethodRepository, getCustomerRepository } from '../lib/database/repositories/index.js';
+import { getPaymentMethodRepository, getCustomerRepository, getAddressRepository } from '../lib/database/repositories/index.js';
 import { PaymentMethodType } from '../lib/providers/base/payment-adapter.js';
 
 const paymentMethods = new Hono();
+
+// Helper function to resolve billing details from address_id or billing_details
+async function resolveBillingDetails(
+  billing_address_id: string | undefined,
+  billing_details: any | undefined,
+  user: any
+): Promise<{ billing_details: any; billing_address_id: string | null }> {
+  let resolvedBillingDetails = billing_details;
+  let resolvedBillingAddressId = billing_address_id || null;
+
+  // If billing_address_id is provided, fetch address and merge with billing_details
+  if (billing_address_id) {
+    try {
+      const addressRepo = await getAddressRepository();
+      const address = await addressRepo.findById(billing_address_id);
+
+      if (!address) {
+        throw new HTTPException(404, {
+          message: `Billing address not found: ${billing_address_id}`
+        });
+      }
+
+      // Verify user has access to this address
+      if (user && !user.userType?.includes('guest')) {
+        if (address.user_id !== user.id) {
+          throw new HTTPException(403, {
+            message: 'Access denied to billing address'
+          });
+        }
+      } else if (user?.userType === 'guest') {
+        if (!address.is_guest || address.guest_email !== user.email) {
+          throw new HTTPException(403, {
+            message: 'Access denied to billing address'
+          });
+        }
+      }
+
+      // Convert address to billing_details format
+      const addressBillingDetails = {
+        name: address.name,
+        email: address.email || user?.email,
+        phone: address.phone,
+        address: {
+          line1: address.line1,
+          line2: address.line2 || undefined,
+          city: address.city,
+          state: address.state || undefined,
+          postal_code: address.postal_code,
+          country: address.country
+        }
+      };
+
+      // Merge with provided billing_details (billing_details takes precedence)
+      resolvedBillingDetails = {
+        ...addressBillingDetails,
+        ...billing_details
+      };
+
+      console.log('✅ Billing address resolved:', {
+        address_id: billing_address_id,
+        address_name: address.name,
+        merged_details: !!billing_details
+      });
+
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        throw error;
+      }
+      console.error('❌ Error resolving billing address:', error);
+      throw new HTTPException(500, {
+        message: 'Failed to resolve billing address'
+      });
+    }
+  }
+
+  return {
+    billing_details: resolvedBillingDetails,
+    billing_address_id: resolvedBillingAddressId
+  };
+}
 
 // List payment methods with guest token support
 paymentMethods.get('/', optionalAuth(), async (c) => {
@@ -89,6 +169,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         expiry_year: pm.expiry_year,
         is_default: pm.is_default,
         is_guest: pm.is_guest,
+        billing_address_id: pm.billing_address_id, // ✅ Include billing address ID
         created_at: pm.created_at,
         updated_at: pm.updated_at,
         ...(user.userType === 'guest' && {
@@ -155,6 +236,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
             is_default: pm.is_default,
             is_guest: pm.is_guest,
             guest_email: pm.guest_email,
+            billing_address_id: pm.billing_address_id, // ✅ Include billing address ID
             created_at: pm.created_at,
             updated_at: pm.updated_at
           }));
@@ -213,6 +295,7 @@ const createPaymentMethodWithTokenSchema = z.object({
   type: z.enum(['credit_card', 'bank_account', 'paypal']),
   provider_id: z.string(),
   payment_method_token: z.string(), // Required for token-based creation
+  billing_address_id: z.string().optional(), // Optional: Use existing address
   billing_details: z.object({
     name: z.string(),
     email: z.string().email(),
@@ -234,6 +317,7 @@ const createPaymentMethodSchema = z.object({
   type: z.enum(['credit_card', 'debit_card', 'bank_account', 'paypal', 'apple_pay', 'google_pay']),
   customer_id: z.string().optional(),
   provider_id: z.string().default('stripe'),
+  billing_address_id: z.string().optional(), // Optional: Use existing address
   card: z.object({
     number: z.string(),
     exp_month: z.number().min(1).max(12),
@@ -292,16 +376,35 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
 
       console.log('✅ Customer found:', {
         internal_id: customer.id,
-        provider_customer_id: customer.provider_customer_id
+        provider_customer_id: customer.provider_customer_id,
+        customer_user_id: customer.user_id,
+        current_user_id: user?.id,
+        user_type: user?.userType
       });
 
       // Check authorization for customer
       if (user && user.userType !== 'guest' && customer.user_id !== user.id) {
+        console.error('🚨 Customer authorization failed:', {
+          customer_user_id: customer.user_id,
+          current_user_id: user.id,
+          user_type: user.userType,
+          customer_id: validatedData.customer_id
+        });
         throw new HTTPException(403, {
-          message: 'Access denied to customer'
+          message: `Access denied to customer. Customer belongs to user ${customer.user_id}, but current user is ${user.id}`
         });
       }
+
+      console.log('✅ Customer authorization passed');
     }
+
+    // Resolve billing details from address_id or billing_details
+    const { billing_details: resolvedBillingDetails, billing_address_id: resolvedBillingAddressId } =
+      await resolveBillingDetails(
+        validatedData.billing_address_id,
+        validatedData.billing_details,
+        user
+      );
 
     // Create payment method with provider using token
     const adapter = getPaymentAdapter(validatedData.provider_id);
@@ -352,9 +455,10 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       expiry_year: attachedPaymentMethod.card?.exp_year?.toString() || null,
       card_brand: attachedPaymentMethod.card?.brand || null,
       is_default: false,
-      billing_address_id: null, // No address support for now
+      billing_address_id: resolvedBillingAddressId, // ✅ Use resolved billing address ID
       is_guest: !user,
-      guest_email: !user ? (validatedData.billing_details?.email || null) : null,
+      guest_email: !user ? (resolvedBillingDetails?.email || null) : null,
+      guest_name: !user ? (resolvedBillingDetails?.name || null) : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -372,6 +476,8 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       is_default: paymentMethod.is_default,
       is_guest: paymentMethod.is_guest,
       guest_email: paymentMethod.guest_email,
+      guest_name: paymentMethod.guest_name,
+      billing_address_id: paymentMethod.billing_address_id, // ✅ Include billing address ID
       created_at: paymentMethod.created_at
     }, 201);
 
@@ -404,14 +510,22 @@ paymentMethods.post('/direct', optionalAuth(), async (c) => {
     console.log('💳 Creating payment method...');
     console.log('🔧 Payment method type:', validatedData.type);
 
+    // Resolve billing details from address_id or billing_details
+    const { billing_details: resolvedBillingDetails, billing_address_id: resolvedBillingAddressId } =
+      await resolveBillingDetails(
+        validatedData.billing_address_id,
+        validatedData.billing_details,
+        user
+      );
+
     // Get payment adapter
     const adapter = getPaymentAdapter(validatedData.provider_id);
 
-    // Create payment method with provider
+    // Create payment method with provider using resolved billing details
     const providerPaymentMethod = await adapter.createPaymentMethod({
       type: validatedData.type as PaymentMethodType,
       card: validatedData.card,
-      billing_details: validatedData.billing_details
+      billing_details: resolvedBillingDetails
     });
 
     // Attach to customer if provided
@@ -441,9 +555,10 @@ paymentMethods.post('/direct', optionalAuth(), async (c) => {
       expiry_year: providerPaymentMethod.card?.exp_year?.toString() || null,
       card_brand: providerPaymentMethod.card?.brand || null,
       is_default: false,
-      billing_address_id: null, // No address support for now
+      billing_address_id: resolvedBillingAddressId, // ✅ Use resolved billing address ID
       is_guest: !user,
-      guest_email: !user ? (validatedData.billing_details?.email || null) : null,
+      guest_email: !user ? (resolvedBillingDetails?.email || null) : null,
+      guest_name: !user ? (resolvedBillingDetails?.name || null) : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -461,6 +576,8 @@ paymentMethods.post('/direct', optionalAuth(), async (c) => {
       is_default: paymentMethod.is_default,
       is_guest: paymentMethod.is_guest,
       guest_email: paymentMethod.guest_email,
+      guest_name: paymentMethod.guest_name,
+      billing_address_id: paymentMethod.billing_address_id, // ✅ Include billing address ID
       created_at: paymentMethod.created_at
     }, 201);
 
@@ -722,6 +839,22 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
 
     console.log(`🔧 Payment method update requested: ${paymentMethodId} by ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
 
+    // If billing_address_id is being updated, resolve billing details
+    let resolvedBillingAddressId = validatedData.billing_address_id;
+
+    if (validatedData.billing_address_id !== undefined && validatedData.billing_address_id !== null) {
+      const result = await resolveBillingDetails(
+        validatedData.billing_address_id,
+        undefined, // No additional billing_details in update
+        user
+      );
+      resolvedBillingAddressId = result.billing_address_id;
+      console.log('✅ Billing address resolved for update:', {
+        original_id: validatedData.billing_address_id,
+        resolved_id: resolvedBillingAddressId
+      });
+    }
+
     const paymentMethodRepo = await getPaymentMethodRepository();
     const paymentMethod = await paymentMethodRepo.findById(paymentMethodId);
 
@@ -823,6 +956,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
     // Update payment method (local fields only)
     const updateData = {
       ...validatedData,
+      billing_address_id: resolvedBillingAddressId, // Use resolved billing address ID
       updated_at: new Date().toISOString()
     };
 

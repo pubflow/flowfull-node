@@ -170,25 +170,7 @@ payments.get('/payments/debug/:payment_method_id', optionalAuth(), async (c) => 
   }
 });
 
-// Create payment intent (without middleware for testing)
-payments.post('/payments/intents-test', async (c) => {
-  try {
-    console.log('🧪 Test payment intent - getting raw text...');
-    const rawText = await c.req.text();
-    console.log('📝 Raw text received:', rawText);
-
-    console.log('🧪 Test payment intent - parsing JSON manually...');
-    const body = JSON.parse(rawText);
-    console.log('✅ Test payment intent - JSON parsed successfully:', body);
-    return c.json({ success: true, received: body });
-  } catch (error) {
-    console.error('❌ Test payment intent - JSON parsing failed:', error);
-    return c.json({
-      error: 'JSON parsing failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, 400);
-  }
-});
+// Removed test endpoint that was creating unnecessary payment intents
 
 // Create payment intent
 payments.post('/payments/intents', optionalAuth(), async (c) => {
