@@ -90,35 +90,54 @@ export class BridgeValidator {
   private async validateWithFlowless(sessionId: string): Promise<SessionData | null> {
     let lastError: Error | null = null;
 
+    console.log(`[BRIDGE-VALIDATOR] Validating session ${sessionId.substring(0, 8)}... with flowless`);
+
     for (let attempt = 1; attempt <= this.retryAttempts; attempt++) {
       try {
         const response = await this.makeValidationRequest(sessionId);
-        
+
+        console.log(`[BRIDGE-VALIDATOR] Flowless response: ${response.status} ${response.statusText}`);
+
         if (response.ok) {
           const data = await response.json();
-          
+
+          console.log(`[BRIDGE-VALIDATOR] Flowless response data:`, {
+            success: data.success,
+            hasUser: !!data.user,
+            userEmail: data.user?.email,
+            userType: data.user?.user_type || data.user?.userType,
+            expiresAt: data.expires_at || data.session?.expiresAt
+          });
+
           if (data.success && data.user) {
+            console.log(`[BRIDGE-VALIDATOR] ✅ Session validation successful for user: ${data.user.email}`);
             return {
               user_id: data.user.id,
               email: data.user.email,
-              name: data.user.name,
-              user_type: data.user.user_type,
-              organization_id: data.user.organization_id,
-              permissions: data.user.permissions,
-              expires_at: data.expires_at,
+              name: data.user.name || data.user.firstName || '',
+              user_type: data.user.user_type || data.user.userType || 'individual',
+              organization_id: undefined, // Not provided by flowless
+              permissions: [], // Not provided by flowless
+              expires_at: data.expires_at || data.session?.expiresAt,
               validated_at: new Date().toISOString()
             };
           } else {
+            console.warn(`[BRIDGE-VALIDATOR] ❌ Invalid response structure from flowless:`, data);
             return null; // Invalid session
           }
         } else if (response.status === 401 || response.status === 403) {
           // Don't retry for authentication errors
+          console.warn(`[BRIDGE-VALIDATOR] ❌ Authentication failed: ${response.status} ${response.statusText}`);
+          const errorText = await response.text();
+          console.warn(`[BRIDGE-VALIDATOR] Error details:`, errorText);
           return null;
         } else if (response.status === 404) {
           // Auth service not available - return null to trigger fallback
-          console.warn('Auth service not available (404), using fallback authentication');
+          console.warn(`[BRIDGE-VALIDATOR] ⚠️ Auth service not available (404), using fallback authentication`);
           return null;
         } else {
+          const errorText = await response.text();
+          console.error(`[BRIDGE-VALIDATOR] ❌ Validation request failed: ${response.status} ${response.statusText}`, errorText);
           throw new Error(`Validation request failed: ${response.status} ${response.statusText}`);
         }
       } catch (error) {
@@ -139,8 +158,9 @@ export class BridgeValidator {
 
   // Make HTTP request to Flowless validation endpoint
   private async makeValidationRequest(sessionId: string): Promise<Response> {
-    const url = `${this.flowlessApiUrl}/auth/validation`;
-    
+    // Use query parameter (most reliable method based on flowless implementation)
+    const url = `${this.flowlessApiUrl}/auth/bridge/validate?session_id=${encodeURIComponent(sessionId)}`;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -149,11 +169,10 @@ export class BridgeValidator {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.validationSecret}`,
-          'X-Bridge-Request': 'true'
+          'X-Bridge-Secret': this.validationSecret,
+          'User-Agent': 'Bridge-Payments/1.0'
         },
         body: JSON.stringify({
-          session_id: sessionId,
           timestamp: Date.now(),
           source: 'bridge-payments'
         }),
@@ -251,19 +270,18 @@ export class BridgeValidator {
   // Health check for Flowless connection
   async healthCheck(): Promise<{ success: boolean; latency?: number; error?: string }> {
     const startTime = Date.now();
-    
+
     try {
       const response = await fetch(`${this.flowlessApiUrl}/health`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.validationSecret}`,
-          'X-Bridge-Request': 'true'
+          'User-Agent': 'Bridge-Payments/1.0'
         },
         signal: AbortSignal.timeout(this.timeout)
       });
-      
+
       const latency = Date.now() - startTime;
-      
+
       if (response.ok) {
         return {
           success: true,
@@ -278,7 +296,7 @@ export class BridgeValidator {
       }
     } catch (error) {
       const latency = Date.now() - startTime;
-      
+
       return {
         success: false,
         latency,
