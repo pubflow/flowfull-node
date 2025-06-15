@@ -1,0 +1,10 @@
+{
+  "transaction_receipt": "✅ Transaction Receipt - ${{amount}} {{currency}} - {{transaction_id}}",
+  "payment_failed": "❌ Payment Failed - {{transaction_id}}",
+  "payment_refunded": "🔄 Refund Processed - {{transaction_id}}",
+  "payment_disputed": "⚠️ Payment Disputed - {{transaction_id}}",
+  "subscription_created": "📅 Subscription Created - {{subscription_id}}",
+  "subscription_cancelled": "❌ Subscription Cancelled - {{subscription_id}}",
+  "invoice_created": "📄 New Invoice - {{invoice_id}}",
+  "invoice_paid": "✅ Invoice Paid - {{invoice_id}}"
+}

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transaction Receipt</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        
+        .logo {
+            max-width: 120px;
+            height: auto;
+            margin-bottom: 15px;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px 30px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 25px;
+            color: #2d3748;
+        }
+        
+        .transaction-card {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            border-left: 4px solid #667eea;
+        }
+        
+        .transaction-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .transaction-title::before {
+            content: "💳";
+            margin-right: 10px;
+            font-size: 24px;
+        }
+        
+        .transaction-details {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        
+        .detail-label {
+            font-weight: 500;
+            color: #4a5568;
+            font-size: 14px;
+        }
+        
+        .detail-value {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 16px;
+        }
+        
+        .amount {
+            font-size: 24px;
+            color: #38a169;
+            font-weight: 700;
+        }
+        
+        .status-success {
+            background-color: #c6f6d5;
+            color: #22543d;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .info-section {
+            background-color: #ebf8ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+            border-left: 4px solid #3182ce;
+        }
+        
+        .info-title {
+            font-weight: 600;
+            color: #2c5282;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .info-text {
+            color: #2d3748;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .contact-info {
+            background-color: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        
+        .contact-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #4a5568;
+        }
+        
+        .contact-item::before {
+            margin-right: 8px;
+            width: 16px;
+        }
+        
+        .contact-phone::before { content: "📞"; }
+        .contact-email::before { content: "📧"; }
+        .contact-address::before { content: "📍"; }
+        
+        .footer {
+            background-color: #2d3748;
+            color: #a0aec0;
+            padding: 25px 30px;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        .footer-links {
+            margin-bottom: 15px;
+        }
+        
+        .footer-links a {
+            color: #81e6d9;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+            
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .transaction-card {
+                padding: 20px;
+            }
+            
+            .detail-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            
+            .amount {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>✅ Transaction Receipt</h1>
+            <p>Your payment has been processed successfully</p>
+        </div>
+        
+        <!-- Content -->
+        <div class="content">
+            <div class="greeting">
+                Dear <strong>{{customer_name}}</strong>,
+            </div>
+            
+            <p>Thank you for your transaction. Below you will find the details of your payment:</p>
+            
+            <!-- Transaction Details -->
+            <div class="transaction-card">
+                <div class="transaction-title">
+                    Transaction Details
+                </div>
+                
+                <div class="transaction-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Amount</span>
+                        <span class="detail-value amount">${{amount}} {{currency}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Description</span>
+                        <span class="detail-value">{{concept}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Date & Time</span>
+                        <span class="detail-value">{{transaction_date}} {{transaction_time}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Transaction ID</span>
+                        <span class="detail-value">{{transaction_id}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Reference Code</span>
+                        <span class="detail-value">{{reference_code}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Status</span>
+                        <span class="status-success">✓ Successful</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Information Section -->
+            <div class="info-section">
+                <div class="info-title">ℹ️ Important Information</div>
+                <div class="info-text">
+                    This receipt confirms that your payment has been processed securely. 
+                    Please keep this email for your records. If you have any questions about 
+                    this transaction, please don't hesitate to contact us.
+                </div>
+            </div>
+            
+            <!-- Contact Information -->
+            <div class="contact-info">
+                <div class="contact-title">📞 Contact Information</div>
+                <div class="contact-item contact-phone">{{contact_phone}}</div>
+                <div class="contact-item contact-email">{{contact_email}}</div>
+                <div class="contact-item contact-address">{{contact_address}}</div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-links">
+                <a href="{{privacy_url}}">Privacy Policy</a>
+                <a href="{{terms_url}}">Terms of Service</a>
+                <a href="{{contact_url}}">Contact</a>
+            </div>
+            <p>© {{current_year}} {{organization_name}}. All rights reserved.</p>
+            <p>This is an automated email, please do not reply to this address.</p>
+        </div>
+    </div>
+</body>
+</html>

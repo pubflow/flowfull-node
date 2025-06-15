@@ -3,6 +3,7 @@ import { PaymentRepository } from '@/lib/database/repositories/payments';
 import { PaymentStatus } from '@/lib/database/types';
 import { getDatabase } from '@/lib/database/connection';
 import { nanoid } from 'nanoid';
+import { receiptService } from '@/lib/email/receipt-service';
 
 export interface WebhookEventData {
   id: string;
@@ -118,6 +119,20 @@ export class WebhookEventProcessor {
     // Update payment status
     await paymentRepo.updateStatus(payment.id, newStatus, errorMessage);
 
+    // Send receipt email for successful payments
+    if (newStatus === PaymentStatus.SUCCEEDED) {
+      try {
+        // Get updated payment data for email
+        const updatedPayment = await paymentRepo.findById(payment.id);
+        if (updatedPayment) {
+          await receiptService.sendTransactionReceipt(updatedPayment);
+        }
+      } catch (emailError) {
+        console.error(`[WebhookProcessor] Failed to send receipt for payment ${payment.id}:`, emailError);
+        // Don't fail the webhook processing if email fails
+      }
+    }
+
     return {
       success: true,
       message: `Payment ${payment.id} updated to ${newStatus}`,
@@ -197,6 +212,17 @@ export class WebhookEventProcessor {
         const payment = await paymentRepo.findByProviderPaymentId(resource.id);
         if (payment) {
           await paymentRepo.updateStatus(payment.id, PaymentStatus.SUCCEEDED);
+
+          // Send receipt email for successful PayPal payment
+          try {
+            const updatedPayment = await paymentRepo.findById(payment.id);
+            if (updatedPayment) {
+              await receiptService.sendTransactionReceipt(updatedPayment);
+            }
+          } catch (emailError) {
+            console.error(`[WebhookProcessor] Failed to send PayPal receipt for payment ${payment.id}:`, emailError);
+          }
+
           return {
             success: true,
             message: `PayPal payment ${payment.id} completed`,

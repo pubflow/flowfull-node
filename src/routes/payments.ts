@@ -13,6 +13,7 @@ import { getPaymentAdapterWithFailover, getPaymentAdapter } from '@/lib/provider
 import { getPaymentRepository } from '../lib/database/repositories/index.js';
 import { PaymentStatus } from '@/lib/database/types';
 import { PaymentIntentStatus } from '@/lib/providers/base/payment-adapter';
+import { receiptService } from '@/lib/email/receipt-service';
 
 // Helper function to map PaymentIntentStatus to PaymentStatus
 function mapPaymentIntentStatus(status: PaymentIntentStatus): PaymentStatus {
@@ -744,6 +745,63 @@ payments.post('/payments/intents/:id/confirm', optionalAuth(), async (c) => {
       mappedStatus === PaymentStatus.FAILED ? 'Payment confirmation failed' : undefined
     );
 
+    // Debug: Log payment status for email sending
+    // console.log(`🔍 Payment status after confirmation: ${mappedStatus}`);
+    // console.log(`🔍 Updated payment exists: ${!!updatedPayment}`);
+    // console.log(`🔍 Should send email: ${mappedStatus === PaymentStatus.SUCCEEDED && !!updatedPayment}`);
+
+    // Send receipt email for successful payments
+    if (mappedStatus === PaymentStatus.SUCCEEDED && updatedPayment) {
+      try {
+        console.log('📧 Sending transaction receipt email...');
+
+        // Prepare transaction data for email service
+        let transactionData: any = {
+          ...updatedPayment,
+          customer_email: null,
+          customer_name: null
+        };
+
+        // Get customer email and name based on user type
+        if (userContext.isAuthenticated && userContext.userId) {
+          // For authenticated users, get email from user context
+          // console.log('🔍 Getting email for authenticated user:', userContext.userId);
+          transactionData.customer_email = user?.email || 'unknown@example.com';
+          transactionData.customer_name = user?.name || user?.user_name || 'Valued Customer';
+          // console.log('📧 Using authenticated user email:', transactionData.customer_email);
+        } else if (updatedPayment.guest_email) {
+          // For guest users, use guest_email from payment
+          // console.log('🔍 Using guest email from payment:', updatedPayment.guest_email);
+          transactionData.customer_email = updatedPayment.guest_email;
+
+          // Try to get guest name from guest_data
+          if (updatedPayment.guest_data) {
+            try {
+              const guestData = typeof updatedPayment.guest_data === 'string'
+                ? JSON.parse(updatedPayment.guest_data)
+                : updatedPayment.guest_data;
+              transactionData.customer_name = guestData.name || 'Valued Customer';
+            } catch (e) {
+              // console.warn('Failed to parse guest_data for email:', e);
+              transactionData.customer_name = 'Valued Customer';
+            }
+          }
+        }
+
+        // console.log('📧 Final email data:', {
+        //   customer_email: transactionData.customer_email,
+        //   customer_name: transactionData.customer_name,
+        //   amount_cents: transactionData.amount_cents
+        // });
+
+        await receiptService.sendTransactionReceipt(transactionData);
+        console.log('✅ Transaction receipt sent successfully');
+      } catch (emailError) {
+        console.error('⚠️ Failed to send transaction receipt:', emailError);
+        // Don't fail the payment confirmation if email fails
+      }
+    }
+
     // If payment succeeded and save_payment_method is true, save the payment method
     let paymentMethodSaved = false;
     if (mappedStatus === PaymentStatus.SUCCEEDED && validatedData.save_payment_method && confirmedIntent.payment_method_id) {
@@ -757,44 +815,58 @@ payments.post('/payments/intents/:id/confirm', optionalAuth(), async (c) => {
         const { getPaymentMethodRepository } = await import('@/lib/database/repositories');
         const paymentMethodRepo = await getPaymentMethodRepository();
 
-        // Parse guest_data if needed
-        let guestData: any = {};
-        if (userContext.isGuest && payment.guest_data) {
-          if (typeof payment.guest_data === 'string') {
-            try {
-              guestData = JSON.parse(payment.guest_data);
-            } catch (e) {
-              console.warn('Failed to parse guest_data for payment method:', e);
+        // Check if payment method already exists for this user/provider
+        const existingPaymentMethod = await paymentMethodRepo.findByProviderPaymentMethodId(
+          payment.provider_id,
+          paymentMethod.id
+        );
+
+        if (existingPaymentMethod &&
+            ((userContext.isAuthenticated && existingPaymentMethod.user_id === userContext.userId) ||
+             (userContext.isGuest && existingPaymentMethod.guest_email === payment.guest_email))) {
+          // Payment method already exists for this user
+          console.log(`💳 Payment method already exists, skipping save: ${paymentMethod.id}`);
+          paymentMethodSaved = false; // Already exists, so not "newly saved"
+        } else {
+          // Parse guest_data if needed
+          let guestData: any = {};
+          if (userContext.isGuest && payment.guest_data) {
+            if (typeof payment.guest_data === 'string') {
+              try {
+                guestData = JSON.parse(payment.guest_data);
+              } catch (e) {
+                console.warn('Failed to parse guest_data for payment method:', e);
+              }
+            } else {
+              guestData = payment.guest_data;
             }
-          } else {
-            guestData = payment.guest_data;
           }
+
+          // Create payment method data for both authenticated users and guests
+          const paymentMethodData = {
+            id: randomUUID(),
+            user_id: userContext.isAuthenticated ? userContext.userId! : null,
+            organization_id: null,
+            provider_id: payment.provider_id,
+            provider_payment_method_id: paymentMethod.id,
+            payment_type: paymentMethod.type,
+            last_four: paymentMethod.card?.last_four || null,
+            expiry_month: paymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
+            expiry_year: paymentMethod.card?.exp_year?.toString() || null,
+            card_brand: paymentMethod.card?.brand || null,
+            is_default: false,
+            billing_address_id: null,
+            is_guest: userContext.isGuest,
+            guest_email: userContext.isGuest ? payment.guest_email : null,
+            guest_name: userContext.isGuest ? guestData.name || null : null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          await paymentMethodRepo.create(paymentMethodData);
+          paymentMethodSaved = true;
+          console.log(`✅ Payment method saved successfully for ${userContext.isGuest ? 'guest' : 'authenticated user'}`);
         }
-
-        // Create payment method data for both authenticated users and guests
-        const paymentMethodData = {
-          id: randomUUID(),
-          user_id: userContext.isAuthenticated ? userContext.userId! : null,
-          organization_id: null,
-          provider_id: payment.provider_id,
-          provider_payment_method_id: paymentMethod.id,
-          payment_type: paymentMethod.type,
-          last_four: paymentMethod.card?.last_four || null,
-          expiry_month: paymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
-          expiry_year: paymentMethod.card?.exp_year?.toString() || null,
-          card_brand: paymentMethod.card?.brand || null,
-          is_default: false,
-          billing_address_id: null,
-          is_guest: userContext.isGuest,
-          guest_email: userContext.isGuest ? payment.guest_email : null,
-          guest_name: userContext.isGuest ? guestData.name || null : null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        await paymentMethodRepo.create(paymentMethodData);
-        paymentMethodSaved = true;
-        console.log(`✅ Payment method saved successfully for ${userContext.isGuest ? 'guest' : 'authenticated user'}`);
       } catch (saveError) {
         console.error('⚠️ Failed to save payment method:', saveError);
         // Don't fail the payment confirmation if saving the payment method fails
@@ -829,8 +901,236 @@ payments.post('/payments/intents/:id/confirm', optionalAuth(), async (c) => {
   }
 });
 
+// Sync payment intent status (for Payment Elements flow)
+// This endpoint is called after frontend confirms payment with Stripe
+// It syncs the status and triggers email/payment method saving
+payments.post('/payments/intents/:id/sync', optionalAuth(), async (c) => {
+  try {
+    const paymentId = c.req.param('id');
+    const user = c.get('user');
 
+    // Debug authentication headers
+    console.log('🔍 Sync endpoint auth debug:', {
+      hasUser: !!user,
+      userInfo: user ? {
+        id: user.id,
+        email: user.email,
+        userType: user.userType,
+        name: user.name
+      } : null,
+      headers: {
+        authorization: c.req.header('Authorization'),
+        sessionId: c.req.header('X-Session-ID'),
+        sessionParam: c.req.query('session_id')
+      }
+    });
 
+    // Parse request body
+    const body = await c.req.json().catch(() => ({}));
+    const validatedData = {
+      save_payment_method: body.save_payment_method || false,
+      expected_status: body.expected_status || null // Frontend can tell us what status it expects
+    };
+
+    console.log('🔄 Syncing payment intent status:', {
+      paymentId,
+      savePaymentMethod: validatedData.save_payment_method,
+      userContext: user ? `authenticated (${user.userType})` : 'guest'
+    });
+
+    const paymentRepo = await getPaymentRepository();
+    const payment = await paymentRepo.findById(paymentId);
+
+    if (!payment) {
+      throw new HTTPException(404, {
+        message: 'Payment not found'
+      });
+    }
+
+    // Get user context
+    const userContext = getUserContext(c);
+
+    // Get payment adapter
+    const adapter = await getPaymentAdapterWithFailover(payment.provider_id);
+
+    // Get current status from Stripe (don't confirm, just retrieve)
+    // Add retry logic for timing issues between frontend and Stripe
+    let currentIntent;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    do {
+      currentIntent = await adapter.getPaymentIntent(payment.provider_intent_id!);
+      console.log(`📊 Current payment intent status from Stripe (attempt ${retryCount + 1}):`, currentIntent.status);
+
+      // If frontend expects 'succeeded' but we get 'pending', wait and retry
+      if (validatedData.expected_status === 'succeeded' &&
+          currentIntent.status === 'pending' &&
+          retryCount < maxRetries) {
+        console.log('⏳ Status mismatch, waiting 2s before retry...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        retryCount++;
+      } else {
+        break;
+      }
+    } while (retryCount <= maxRetries);
+
+    // Update payment status in database
+    const mappedStatus = mapPaymentIntentStatus(currentIntent.status);
+    const updatedPayment = await paymentRepo.updateStatus(
+      payment.id,
+      mappedStatus,
+      mappedStatus === PaymentStatus.FAILED ? 'Payment sync failed' : undefined
+    );
+
+    // Send receipt email for successful payments
+    if (mappedStatus === PaymentStatus.SUCCEEDED && updatedPayment) {
+      try {
+        console.log('📧 Sending transaction receipt email...');
+
+        // Prepare transaction data for email service
+        let transactionData: any = {
+          ...updatedPayment,
+          customer_email: null,
+          customer_name: null
+        };
+
+        // Get customer email and name based on user type
+        if (userContext.isAuthenticated && userContext.userId) {
+          // For authenticated users, get email from user context
+          transactionData.customer_email = user?.email || 'unknown@example.com';
+          transactionData.customer_name = user?.name || user?.firstName || 'Valued Customer';
+
+          console.log('👤 Authenticated user email data:', {
+            email: transactionData.customer_email,
+            name: transactionData.customer_name,
+            userType: user?.userType
+          });
+        } else if (updatedPayment.guest_email) {
+          // For guest users, use guest_email from payment
+          transactionData.customer_email = updatedPayment.guest_email;
+
+          // Try to get guest name from guest_data
+          if (updatedPayment.guest_data) {
+            try {
+              const guestData = typeof updatedPayment.guest_data === 'string'
+                ? JSON.parse(updatedPayment.guest_data)
+                : updatedPayment.guest_data;
+              transactionData.customer_name = guestData.name || 'Valued Customer';
+            } catch (e) {
+              transactionData.customer_name = 'Valued Customer';
+            }
+          }
+
+          console.log('👤 Guest user email data:', {
+            email: transactionData.customer_email,
+            name: transactionData.customer_name,
+            isGuest: true
+          });
+        } else {
+          console.warn('⚠️ No email data found for transaction receipt:', {
+            isAuthenticated: userContext.isAuthenticated,
+            hasUser: !!user,
+            hasGuestEmail: !!updatedPayment.guest_email,
+            userContext
+          });
+        }
+
+        await receiptService.sendTransactionReceipt(transactionData);
+        console.log('✅ Transaction receipt sent successfully');
+      } catch (emailError) {
+        console.error('⚠️ Failed to send transaction receipt:', emailError);
+        // Don't fail the sync if email fails
+      }
+    }
+
+    // Save payment method if requested and payment succeeded
+    let paymentMethodSaved = false;
+    if (mappedStatus === PaymentStatus.SUCCEEDED && validatedData.save_payment_method && currentIntent.payment_method_id) {
+      console.log('💾 Saving payment method after successful payment...');
+
+      try {
+        // Get payment method details from provider
+        const paymentMethod = await adapter.getPaymentMethod(currentIntent.payment_method_id);
+
+        // Save to database
+        const { getPaymentMethodRepository } = await import('@/lib/database/repositories');
+        const paymentMethodRepo = await getPaymentMethodRepository();
+
+        // Check if payment method already exists for this user/provider
+        const existingPaymentMethod = await paymentMethodRepo.findByProviderPaymentMethodId(
+          payment.provider_id,
+          paymentMethod.id
+        );
+
+        if (existingPaymentMethod &&
+            ((userContext.isAuthenticated && existingPaymentMethod.user_id === userContext.userId) ||
+             (userContext.isGuest && existingPaymentMethod.guest_email === payment.guest_email))) {
+          // Payment method already exists for this user
+          console.log(`💳 Payment method already exists, skipping save: ${paymentMethod.id}`);
+          paymentMethodSaved = false; // Already exists, so not "newly saved"
+        } else {
+          // Parse guest_data if needed
+          let guestData: any = {};
+          if (userContext.isGuest && payment.guest_data) {
+            if (typeof payment.guest_data === 'string') {
+              try {
+                guestData = JSON.parse(payment.guest_data);
+              } catch (e) {
+                console.warn('Failed to parse guest_data for payment method:', e);
+              }
+            } else {
+              guestData = payment.guest_data;
+            }
+          }
+
+          // Create payment method data for both authenticated users and guests
+          const paymentMethodData = {
+            id: randomUUID(),
+            user_id: userContext.isAuthenticated ? userContext.userId! : null,
+            organization_id: null,
+            provider_id: payment.provider_id,
+            provider_payment_method_id: paymentMethod.id,
+            payment_type: paymentMethod.type,
+            last_four: paymentMethod.card?.last_four || null,
+            expiry_month: paymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
+            expiry_year: paymentMethod.card?.exp_year?.toString() || null,
+            card_brand: paymentMethod.card?.brand || null,
+            is_default: false,
+            billing_address_id: null,
+            is_guest: userContext.isGuest,
+            guest_email: userContext.isGuest ? payment.guest_email : null,
+            guest_name: userContext.isGuest ? guestData.name || null : null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          await paymentMethodRepo.create(paymentMethodData);
+          paymentMethodSaved = true;
+          console.log(`✅ Payment method saved successfully for ${userContext.isGuest ? 'guest' : 'authenticated user'}`);
+        }
+      } catch (saveError) {
+        console.error('⚠️ Failed to save payment method:', saveError);
+        // Don't fail the sync if saving the payment method fails
+      }
+    }
+
+    return c.json({
+      id: updatedPayment!.id,
+      status: updatedPayment!.status,
+      provider_intent_id: payment.provider_intent_id,
+      payment_method_saved: paymentMethodSaved,
+      updated_at: updatedPayment!.updated_at,
+      synced: true
+    });
+
+  } catch (error) {
+    console.error('Sync payment intent error:', error);
+    throw new HTTPException(500, {
+      message: 'Failed to sync payment intent'
+    });
+  }
+});
 
 // Cancel payment intent
 payments.post('/payments/:id/cancel', optionalAuth(), async (c) => {

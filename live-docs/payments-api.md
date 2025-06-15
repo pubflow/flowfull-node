@@ -36,6 +36,7 @@ https://your-api-domain.com/bridge-payment
 | POST | `/payments/intents` | Create payment intent | Optional |
 | PUT | `/payments/intents/:id` | Update payment intent | Optional |
 | POST | `/payments/intents/:id/confirm` | Confirm payment intent | Optional |
+| POST | `/payments/intents/:id/sync` | Sync payment status and trigger email | Optional |
 | GET | `/payments/:id` | Get payment by ID | Optional |
 | GET | `/payments` | List user payments | Yes* |
 | GET | `/payments?token=<token>` | List guest payments with token | Token Required |
@@ -508,6 +509,284 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_guest_
     "save_payment_method": true
   }'
 ```
+
+---
+
+## Sync Payment Intent Status
+
+Synchronize payment intent status with the payment provider and trigger post-payment actions like email receipts and payment method saving. This endpoint is designed for Payment Elements flows where the frontend confirms payments directly with Stripe, and the backend needs to sync the status and handle business logic.
+
+### Use Cases
+
+- **Payment Elements Integration**: After frontend confirms payment with Stripe using `stripe.confirmPayment()`
+- **Status Synchronization**: Sync payment status from provider to database
+- **Email Receipts**: Automatically send transaction receipt emails
+- **Payment Method Saving**: Save payment methods for future use
+- **Retry Logic**: Handle timing issues between frontend confirmation and provider status updates
+
+### Request
+
+```http
+POST /bridge-payment/payments/intents/{id}/sync
+```
+
+#### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | Payment intent ID |
+
+#### Headers
+
+```http
+Authorization: Bearer <token>  # Optional for authenticated users
+X-Session-ID: <session_id>     # Alternative auth header
+Content-Type: application/json
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `save_payment_method` | boolean | No | Whether to save the payment method for future use (default: false) |
+| `expected_status` | string | No | Expected payment status from frontend (helps with retry logic) |
+
+### Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+```
+
+```json
+{
+  "id": "pay_1234567890",
+  "status": "succeeded",
+  "provider_intent_id": "pi_1234567890abcdef",
+  "payment_method_saved": true,
+  "updated_at": "2025-01-15T10:35:00Z",
+  "synced": true
+}
+```
+
+### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Payment intent ID |
+| `status` | string | Current payment status from provider |
+| `provider_intent_id` | string | Provider's payment intent ID |
+| `payment_method_saved` | boolean | Whether payment method was saved |
+| `updated_at` | string | Last update timestamp |
+| `synced` | boolean | Always true for sync endpoint |
+
+### Retry Logic
+
+The sync endpoint includes intelligent retry logic for handling timing issues:
+
+1. **Status Mismatch Detection**: If `expected_status` is "succeeded" but provider shows "pending"
+2. **Automatic Retries**: Up to 3 attempts with 2-second delays
+3. **Graceful Fallback**: Processes with final status if retries don't resolve mismatch
+
+### Examples
+
+#### Basic Sync (Guest Payment)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_guest_123/sync" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "save_payment_method": false
+  }'
+```
+
+#### Sync with Payment Method Saving (Authenticated User)
+```bash
+curl -X POST "https://api.example.com/bridge-payment/payments/intents/pay_1234567890/sync" \
+  -H "X-Session-ID: session_abc123" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "save_payment_method": true,
+    "expected_status": "succeeded"
+  }'
+```
+
+#### Frontend Integration with Payment Elements
+```javascript
+// After Stripe confirms payment
+const { error, paymentIntent } = await stripe.confirmPayment({
+  elements,
+  confirmParams: {
+    return_url: `${window.location.origin}/success`
+  },
+  redirect: 'if_required'
+});
+
+if (!error && paymentIntent.status === 'succeeded') {
+  // Sync with backend to trigger email and save payment method
+  const syncResponse = await fetch(`/bridge-payment/payments/intents/${paymentIntentId}/sync`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-ID': localStorage.getItem('session_id') // For authenticated users
+    },
+    body: JSON.stringify({
+      save_payment_method: shouldSavePaymentMethod,
+      expected_status: paymentIntent.status
+    })
+  });
+
+  const syncResult = await syncResponse.json();
+  console.log('Payment synced:', syncResult);
+}
+```
+
+### Email Receipt Behavior
+
+The sync endpoint automatically sends transaction receipt emails when:
+
+- ✅ Payment status is `succeeded`
+- ✅ Customer email is available (from user account or guest data)
+- ✅ Email service is configured
+
+#### For Authenticated Users
+- Email sent to user's account email
+- Customer name from user profile
+- Includes user type in email context
+
+#### For Guest Users
+- Email sent to guest email from payment data
+- Customer name from guest data
+- Marked as guest transaction
+
+### Payment Method Saving
+
+When `save_payment_method: true` is provided:
+
+1. **Retrieves Payment Method**: Gets payment method details from provider
+2. **Checks for Duplicates**: Prevents saving duplicate payment methods
+3. **Creates Database Record**: Saves payment method for future use
+4. **Handles Both User Types**: Works for authenticated and guest users
+
+#### Authenticated Users
+- Payment method linked to user account
+- Available for future authenticated payments
+
+#### Guest Users
+- Payment method linked to guest email
+- Available for future guest payments with same email
+
+### Error Handling
+
+#### Payment Not Found
+```http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Payment not found",
+  "message": "Payment intent not found",
+  "timestamp": "2025-01-15T18:00:00Z"
+}
+```
+
+#### Provider Communication Error
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "Failed to sync payment intent",
+  "message": "Unable to retrieve payment status from provider",
+  "timestamp": "2025-01-15T18:00:00Z"
+}
+```
+
+### Best Practices
+
+#### 1. **Use After Frontend Confirmation**
+```javascript
+// ✅ Correct flow
+const { error, paymentIntent } = await stripe.confirmPayment({...});
+if (!error && paymentIntent.status === 'succeeded') {
+  await syncPaymentIntent(paymentIntentId, { save_payment_method: true });
+}
+
+// ❌ Don't use instead of confirmation
+// The sync endpoint doesn't confirm payments, only syncs status
+```
+
+#### 2. **Handle Sync Failures Gracefully**
+```javascript
+try {
+  await syncPaymentIntent(paymentIntentId, options);
+} catch (syncError) {
+  console.warn('Sync failed, but payment succeeded:', syncError);
+  // Don't fail the user experience - payment already succeeded
+  // Maybe retry sync in background or show success anyway
+}
+```
+
+#### 3. **Include Expected Status for Better Reliability**
+```javascript
+const syncData = {
+  save_payment_method: shouldSave,
+  expected_status: paymentIntent.status // Helps with retry logic
+};
+```
+
+#### 4. **Authentication Headers**
+```javascript
+// For authenticated users, include session info
+const headers = {
+  'Content-Type': 'application/json'
+};
+
+// Add auth header if user is logged in
+if (sessionId) {
+  headers['X-Session-ID'] = sessionId;
+}
+```
+
+### Integration with Payment Elements
+
+The sync endpoint is specifically designed for Payment Elements integration:
+
+```mermaid
+sequenceDiagram
+    participant Frontend
+    participant Stripe
+    participant Backend
+    participant Email
+
+    Frontend->>Backend: POST /payments/intents (create)
+    Backend->>Stripe: Create PaymentIntent
+    Stripe->>Backend: Return client_secret
+    Backend->>Frontend: Return payment data
+
+    Frontend->>Stripe: confirmPayment() with Elements
+    Stripe->>Frontend: Payment succeeded
+
+    Frontend->>Backend: POST /payments/intents/:id/sync
+    Backend->>Stripe: Get current status
+    Backend->>Backend: Update database
+    Backend->>Email: Send receipt email
+    Backend->>Backend: Save payment method (if requested)
+    Backend->>Frontend: Sync complete
+```
+
+### Differences from `/confirm` Endpoint
+
+| Feature | `/confirm` | `/sync` |
+|---------|------------|---------|
+| **Purpose** | Confirms payment with provider | Syncs already-confirmed payment |
+| **Provider Call** | `confirmPaymentIntent()` | `getPaymentIntent()` |
+| **Use Case** | Server-side payment confirmation | Frontend-confirmed payment sync |
+| **Timing** | Before payment completion | After payment completion |
+| **Retry Logic** | Standard provider retries | Smart status mismatch handling |
 
 ---
 

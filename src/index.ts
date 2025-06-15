@@ -20,6 +20,7 @@ import guestConversionRoutes from '@/routes/guest-conversion';
 import renewalWebhookRoutes from '@/routes/webhooks/renewals';
 import adminRenewalRoutes from '@/routes/admin/renewals';
 import adminRoutes from './routes/admin.js';
+// import testEmailRoutes from '@/routes/test-email';
 
 // Create Hono app
 const app = new Hono();
@@ -80,9 +81,15 @@ app.use('*', async (c, next) => {
 if (config.VALIDATE_CONTENT_TYPE) {
   app.use('*', async (c, next) => {
     const method = c.req.method;
+    const path = c.req.path;
     const contentType = c.req.header('content-type');
 
-    if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    // Skip content-type validation for test-email routes and health checks
+    const skipValidation = path.startsWith('/bridge-payment/test-email') ||
+                          path.startsWith('/health') ||
+                          path === '/';
+
+    if (['POST', 'PUT', 'PATCH'].includes(method) && !skipValidation) {
       if (!contentType || !contentType.includes('application/json')) {
         throw new HTTPException(400, {
           message: 'Content-Type must be application/json'
@@ -119,6 +126,7 @@ app.route('/bridge-payment/subscriptions', subscriptionRoutes);
 app.route('/bridge-payment/guest', guestConversionRoutes);
 app.route('/bridge-payment/admin/renewals', adminRenewalRoutes);
 app.route('/bridge-payment/admin', adminRoutes);
+// app.route('/bridge-payment/test-email', testEmailRoutes);
 
 // Root endpoint
 app.get('/', (c) => {
@@ -139,6 +147,7 @@ app.get('/', (c) => {
       renewal_webhooks: '/bridge-payment/webhooks/renewals',
       admin_renewals: '/bridge-payment/admin/renewals',
       admin: '/bridge-payment/admin'
+      // test_email: '/bridge-payment/test-email'
     }
   });
 });
