@@ -1015,7 +1015,8 @@ payments.post('/payments/intents/:id/sync', optionalAuth(), async (c) => {
         let transactionData: any = {
           ...updatedPayment,
           customer_email: null,
-          customer_name: null
+          customer_name: null,
+          provider_intent_id: payment.provider_intent_id // Add for receipt URL retrieval
         };
 
         // Get customer email and name based on user type

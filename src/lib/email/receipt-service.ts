@@ -17,21 +17,22 @@ interface TransactionData {
   concept?: string;
   reference_code?: string;
   category?: string;
-  
+
   // Provider information
   provider_id: string;
   provider_payment_id?: string;
-  
+  provider_intent_id?: string; // Added for receipt URL retrieval
+
   // Customer information
   customer_email?: string;
   customer_name?: string;
   guest_email?: string;
   guest_name?: string;
-  
+
   // Timestamps
   created_at: string;
   updated_at?: string;
-  
+
   // Metadata
   metadata?: Record<string, any>;
 }
@@ -84,21 +85,137 @@ export class ReceiptService {
     if (transaction.metadata?.language) {
       return transaction.metadata.language;
     }
-    
+
     // Check customer email domain for hints (optional)
     const customerEmail = transaction.customer_email || transaction.guest_email || '';
     if (customerEmail.includes('.es') || customerEmail.includes('.mx') || customerEmail.includes('.ar')) {
       return 'es';
     }
-    
+
     // Default from environment
     return process.env.GLOBAL_LANG || process.env.DEFAULT_LANGUAGE || 'en';
   }
 
   /**
+   * Get receipt URL from payment provider (currently only Stripe)
+   */
+  private async getReceiptUrl(transaction: TransactionData): Promise<string | null> {
+    console.log(`🔍 Checking receipt URL eligibility:`, {
+      provider_id: transaction.provider_id,
+      status: transaction.status,
+      provider_intent_id: transaction.provider_intent_id,
+      transaction_id: transaction.id
+    });
+
+    // Only get receipt URL for Stripe and successful payments
+    if (transaction.provider_id !== 'stripe') {
+      console.log(`⚠️ Provider ${transaction.provider_id} is not Stripe, skipping receipt URL`);
+      return null;
+    }
+
+    if (transaction.status !== 'succeeded') {
+      console.log(`⚠️ Transaction status ${transaction.status} is not succeeded, skipping receipt URL`);
+      return null;
+    }
+
+    if (!transaction.provider_intent_id) {
+      console.log(`⚠️ No provider_intent_id found, skipping receipt URL`);
+      return null;
+    }
+
+    try {
+      console.log(`🧾 Getting receipt URL for Stripe transaction: ${transaction.id} with intent: ${transaction.provider_intent_id}`);
+
+      // Use PaymentProviderFactory to get Stripe adapter
+      const { getPaymentAdapter } = await import('../providers/factory');
+
+      console.log(`🔧 Getting Stripe adapter from factory`);
+
+      // Get Stripe adapter instance
+      const stripeAdapter = getPaymentAdapter('stripe');
+
+      // Verify it's a Stripe adapter and has the getReceiptUrl method
+      if (!stripeAdapter || typeof (stripeAdapter as any).getReceiptUrl !== 'function') {
+        console.warn('⚠️ Stripe adapter does not have getReceiptUrl method');
+        return null;
+      }
+
+      // Get receipt URL
+      console.log(`📞 Calling stripeAdapter.getReceiptUrl(${transaction.provider_intent_id})`);
+      const receiptUrl = await (stripeAdapter as any).getReceiptUrl(transaction.provider_intent_id);
+
+      if (receiptUrl) {
+        console.log(`✅ Receipt URL obtained for transaction ${transaction.id}: ${receiptUrl.substring(0, 50)}...`);
+      } else {
+        console.log(`⚠️ No receipt URL available for transaction ${transaction.id}`);
+      }
+
+      return receiptUrl;
+
+    } catch (error) {
+      console.error('❌ Failed to get receipt URL:', error);
+      return null; // Don't break email flow if receipt URL fails
+    }
+  }
+
+  /**
+   * Generate logo header HTML if ORGANIZATION_LOGO is set
+   */
+  private generateLogoHeader(): string {
+    const logoUrl = process.env.ORGANIZATION_LOGO;
+
+    if (!logoUrl) {
+      return '';
+    }
+
+    return `
+      <div class="logo-header">
+        <img src="${logoUrl}" alt="Organization Logo" class="organization-logo" />
+      </div>
+    `;
+  }
+
+  /**
+   * Generate receipt section HTML for Stripe payments
+   */
+  private generateReceiptSection(receiptUrl: string | null, language: string): string {
+    if (!receiptUrl) {
+      return '';
+    }
+
+    const isSpanish = language === 'es';
+
+    const title = isSpanish ? '📄 Recibo Oficial de Pago' : '📄 Official Payment Receipt';
+    const text = isSpanish
+      ? 'Vea y descargue su recibo oficial de pago desde nuestro procesador de pagos. Este recibo contiene todos los detalles de la transacción y puede usarlo para sus registros:'
+      : 'View and download your official payment receipt from our payment processor. This receipt contains all transaction details and can be used for your records:';
+    const buttonText = isSpanish ? '🔗 Ver Recibo Oficial' : '🔗 View Official Receipt';
+    const note = isSpanish
+      ? 'Este recibo es proporcionado por nuestro procesador de pagos seguro y contiene los detalles completos de la transacción.'
+      : 'This receipt is provided by our secure payment processor and contains complete transaction details.';
+
+    return `
+      <div class="receipt-section">
+        <div class="receipt-title">${title}</div>
+        <div class="receipt-text">
+          ${text}
+        </div>
+        <div class="receipt-button-container">
+          <a href="${receiptUrl}" target="_blank" class="receipt-button">
+            ${buttonText}
+          </a>
+        </div>
+        <div class="receipt-note">
+          ${note}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
    * Build template variables from transaction data
    */
-  private buildTemplateVariables(transaction: TransactionData): Record<string, string> {
+  private async buildTemplateVariables(transaction: TransactionData, receiptUrl?: string | null): Promise<Record<string, string>> {
     const customer = this.getCustomerInfo(transaction);
     const organization = this.getOrganizationConfig();
     const transactionDate = new Date(transaction.created_at);
@@ -131,7 +248,17 @@ export class ReceiptService {
       
       // Additional metadata
       payment_method: transaction.metadata?.payment_method || 'Card',
-      category: transaction.category || 'payment'
+      category: transaction.category || 'payment',
+
+      // Logo header (optional)
+      logo_header: this.generateLogoHeader(),
+
+      // Receipt section (Stripe only)
+      receipt_section: this.generateReceiptSection(receiptUrl, language),
+
+      // Legacy variables (for backward compatibility)
+      receipt_url: receiptUrl || '',
+      has_receipt_url: receiptUrl ? 'true' : 'false'
     };
   }
 
@@ -160,7 +287,11 @@ export class ReceiptService {
       }
 
       const language = this.getLanguage(transaction);
-      const variables = this.buildTemplateVariables(transaction);
+
+      // Get receipt URL for Stripe payments
+      const receiptUrl = await this.getReceiptUrl(transaction);
+
+      const variables = await this.buildTemplateVariables(transaction, receiptUrl);
       
       // Get template content
       const template = templateService.getTemplate('transaction_receipt', variables, language);
@@ -216,7 +347,13 @@ export class ReceiptService {
       }
 
       const language = this.getLanguage(transaction);
-      const baseVariables = this.buildTemplateVariables(transaction);
+
+      // Get receipt URL for Stripe payments (unless overridden in customVariables)
+      const receiptUrl = customVariables.receipt_url !== undefined ?
+        customVariables.receipt_url :
+        await this.getReceiptUrl(transaction);
+
+      const baseVariables = await this.buildTemplateVariables(transaction, receiptUrl);
       const variables = { ...baseVariables, ...customVariables };
 
       const template = templateService.getTemplate(templateName, variables, language);

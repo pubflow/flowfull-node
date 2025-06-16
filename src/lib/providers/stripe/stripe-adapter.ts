@@ -461,6 +461,47 @@ export class StripeAdapter extends PaymentAdapter {
     }
   }
 
+  /**
+   * Get receipt URL from Stripe for a successful payment
+   * @param paymentIntentId - The Stripe PaymentIntent ID
+   * @returns Receipt URL or null if not available
+   */
+  async getReceiptUrl(paymentIntentId: string): Promise<string | null> {
+    try {
+      console.log(`🧾 Getting receipt URL for PaymentIntent: ${paymentIntentId}`);
+
+      // First, retrieve the PaymentIntent
+      const paymentIntent = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+
+      // Check if payment was successful
+      if (paymentIntent.status !== 'succeeded') {
+        console.log(`⚠️ PaymentIntent status is ${paymentIntent.status}, no receipt available`);
+        return null;
+      }
+
+      // Check if there's a latest_charge
+      if (!paymentIntent.latest_charge) {
+        console.log('⚠️ No latest_charge found in PaymentIntent');
+        return null;
+      }
+
+      // Retrieve the charge to get receipt_url
+      const charge = await this.stripe.charges.retrieve(paymentIntent.latest_charge as string);
+
+      if (charge.receipt_url) {
+        console.log(`✅ Receipt URL found: ${charge.receipt_url.substring(0, 50)}...`);
+        return charge.receipt_url;
+      } else {
+        console.log('⚠️ No receipt_url found in charge');
+        return null;
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to get receipt URL:', error);
+      return null; // Return null instead of throwing to not break email flow
+    }
+  }
+
   async verifyWebhook(payload: string, signature: string): Promise<WebhookEvent> {
     if (!this.config.webhook_secret) {
       throw new Error('Webhook secret not configured');
