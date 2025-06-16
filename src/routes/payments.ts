@@ -302,6 +302,29 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
       isGuest: userContext.isGuest
     });
 
+    // Prepare metadata - add guest data for guest payments (multi-provider support)
+    let paymentMetadata = validatedData.metadata || {};
+
+    // For guest payments, add guest data to payment provider metadata
+    // This works with all providers (Stripe, PayPal, Authorize.Net) that support metadata
+    if (userContext.isGuest && userContext.guestData) {
+      console.log(`📧 Adding guest data to ${validatedData.provider_id} metadata for guest payment`);
+      paymentMetadata = {
+        ...paymentMetadata,
+        // Add guest data to metadata for payment provider transaction
+        guest_email: userContext.guestData.email,
+        guest_name: userContext.guestData.name,
+        ...(userContext.guestData.phone && { guest_phone: userContext.guestData.phone }),
+        is_guest_payment: 'true' // String because most payment providers metadata only support strings
+      };
+      console.log('✅ Enhanced metadata with guest data:', {
+        provider: validatedData.provider_id,
+        guest_email: paymentMetadata.guest_email,
+        guest_name: paymentMetadata.guest_name,
+        guest_phone: paymentMetadata.guest_phone || 'not provided'
+      });
+    }
+
     const paymentIntent = await adapter.createPaymentIntent({
       amount_cents: validatedData.amount_cents,
       currency: validatedData.currency,
@@ -309,7 +332,7 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
       payment_method_id: validatedData.payment_method_id,
       customer_id: customerId, // ✅ Include customer_id if available
       return_url: validatedData.return_url,
-      metadata: validatedData.metadata
+      metadata: paymentMetadata // ✅ Enhanced metadata with guest data for guest payments
     });
 
     // Save payment to database
