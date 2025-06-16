@@ -1825,3 +1825,29 @@ For technical support or questions about the Payments API:
 - **Database Indexes**: Optimized indexes for payment queries
 - **Error Responses**: Consistent error format across all endpoints
 - **Environment Variables**: New configuration options for timeouts and formats
+
+### Version 2.1.0 - June 16, 2025
+
+#### 🆕 New Features
+- **Payment Continuation Support**: Enhanced support for continuing incomplete payments that require additional authentication or confirmation
+- **Enhanced Guest Information**: Automatic extraction of guest names from guest_data JSON for better payment tracking
+- **Reference Code Support**: Added reference_code field to payment responses for better tracking and analytics
+- **Payment Status Management**: Improved handling of `pending`, `requires_confirmation`, and `requires_action` payment statuses
+
+#### 🔧 Improvements
+- **Guest Data Extraction**: Automatic guest_name extraction from guest_data JSON field in payment responses
+- **Payment Details**: Enhanced payment detail responses with guest information and reference codes
+- **Status Handling**: Better status management for payments requiring additional user action
+- **Frontend Integration**: Improved patterns for payment continuation flows
+
+#### 📚 Documentation Updates
+- **Payment Continuation Guide**: Complete guide for implementing payment continuation workflows
+- **Guest Information**: Updated examples for guest name extraction and display
+- **Status Handling**: Documentation for handling different payment statuses and continuation flows
+- **Reference Codes**: Examples for using reference codes in payment tracking
+
+#### 🛠️ Technical Changes
+- **Response Enhancement**: Payment responses now include extracted guest_name field
+- **Reference Code Field**: Added reference_code to payment list and detail responses
+- **Status Priority**: Enhanced status handling for payment continuation scenarios
+- **Guest Data Processing**: Improved guest information extraction and display

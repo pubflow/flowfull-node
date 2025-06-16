@@ -170,6 +170,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         is_default: pm.is_default,
         is_guest: pm.is_guest,
         billing_address_id: pm.billing_address_id, // ✅ Include billing address ID
+        metadata: pm.metadata ? JSON.parse(pm.metadata) : null,
         created_at: pm.created_at,
         updated_at: pm.updated_at,
         ...(user.userType === 'guest' && {
@@ -441,6 +442,17 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       }
     }
 
+    // Prepare metadata for storage
+    let metadataJson: string | null = null;
+    if (validatedData.metadata && Object.keys(validatedData.metadata).length > 0) {
+      try {
+        metadataJson = JSON.stringify(validatedData.metadata);
+        console.log('💾 Storing payment method metadata:', metadataJson);
+      } catch (error) {
+        console.warn('⚠️ Failed to serialize metadata, skipping:', error);
+      }
+    }
+
     // Save payment method to database using native-payments schema
     const paymentMethodRepo = await getPaymentMethodRepository();
     const paymentMethod = await paymentMethodRepo.create({
@@ -459,6 +471,7 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       is_guest: !user,
       guest_email: !user ? (resolvedBillingDetails?.email || null) : null,
       guest_name: !user ? (resolvedBillingDetails?.name || null) : null,
+      metadata: metadataJson, // ✅ Store metadata as JSON string
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     });
@@ -953,14 +966,33 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
       }
     }
 
+    // Prepare metadata for storage
+    let metadataJson: string | null = null;
+    if (validatedData.metadata && Object.keys(validatedData.metadata).length > 0) {
+      try {
+        metadataJson = JSON.stringify(validatedData.metadata);
+        console.log('💾 Updating payment method metadata:', metadataJson);
+      } catch (error) {
+        console.warn('⚠️ Failed to serialize metadata, skipping:', error);
+      }
+    }
+
     // Update payment method (local fields only)
     const updateData = {
-      ...validatedData,
+      is_default: validatedData.is_default,
       billing_address_id: resolvedBillingAddressId, // Use resolved billing address ID
+      metadata: metadataJson, // ✅ Store metadata as JSON string
       updated_at: new Date().toISOString()
     };
 
     const updatedPaymentMethod = await paymentMethodRepo.update(paymentMethodId, updateData);
+
+    if (!updatedPaymentMethod) {
+      return c.json(formatError(
+        "Update Failed",
+        "Failed to update payment method"
+      ), 500);
+    }
 
     console.log('✅ Payment method updated successfully (local fields only)');
     console.log(`   Updated fields: ${Object.keys(validatedData).join(', ')}`);
@@ -1005,8 +1037,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
         access_method: user ? (user.userType === 'admin' ? 'admin_access' :
                               user.userType === 'guest' ? 'guest_token_access' : 'user_id_access') : 'fallback_token_search',
         is_owner: paymentMethod.user_id === user?.id || (user?.userType === 'guest' && paymentMethod.guest_email === user.email),
-        is_admin: user?.userType === 'admin',
-        updated_fields: Object.keys(validatedData)
+        is_admin: user?.userType === 'admin'
       }
     ));
 
@@ -1014,8 +1045,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
     if (error instanceof z.ZodError) {
       return c.json(formatError(
         "Validation Error",
-        "Invalid request data",
-        error.errors
+        "Invalid request data"
       ), 400);
     }
 

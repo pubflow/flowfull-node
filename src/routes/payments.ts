@@ -1547,6 +1547,41 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
       ), 404);
     }
 
+    // Get payment method details if payment_method_id exists
+    let paymentMethodDetails = null;
+    if (payment.payment_method_id) {
+      try {
+        const { getPaymentMethodRepository } = await import('../lib/database/repositories/index.js');
+        const paymentMethodRepo = await getPaymentMethodRepository();
+        const paymentMethod = await paymentMethodRepo.findById(payment.payment_method_id);
+
+        if (paymentMethod) {
+          // Include basic payment method info (safe fields only)
+          paymentMethodDetails = {
+            id: paymentMethod.id,
+            payment_type: paymentMethod.payment_type,
+            card_brand: paymentMethod.card_brand,
+            last_four: paymentMethod.last_four,
+            expiry_month: paymentMethod.expiry_month,
+            expiry_year: paymentMethod.expiry_year,
+            is_guest: paymentMethod.is_guest,
+            // Parse metadata if it exists
+            metadata: paymentMethod.metadata ? (() => {
+              try {
+                return JSON.parse(paymentMethod.metadata);
+              } catch {
+                return null;
+              }
+            })() : null
+          };
+          console.log('✅ Payment method details loaded for payment');
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not load payment method details:', error);
+        // Continue without payment method details - not critical
+      }
+    }
+
     // Check access permissions
     if (user) {
       // Authenticated user - check ownership
@@ -1576,6 +1611,27 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         ), 403);
       }
 
+      // Parse payment metadata if it exists
+      let parsedMetadata = null;
+      if (payment.metadata) {
+        try {
+          parsedMetadata = JSON.parse(payment.metadata);
+        } catch (error) {
+          console.warn('⚠️ Failed to parse payment metadata:', error);
+        }
+      }
+
+      // Extract guest_name from guest_data if available
+      let guestName = null;
+      if (payment.guest_data) {
+        try {
+          const guestData = JSON.parse(payment.guest_data);
+          guestName = guestData.name || null;
+        } catch (error) {
+          console.warn('⚠️ Failed to parse guest_data:', error);
+        }
+      }
+
       // Return payment details (exclude sensitive data for non-admin users)
       const paymentData = {
         id: payment.id,
@@ -1585,18 +1641,32 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         description: payment.description,
         provider_id: payment.provider_id,
         provider_payment_id: payment.provider_payment_id,
+        // Enhanced tracking fields
+        concept: payment.concept,
+        reference_code: payment.reference_code, // ✅ Include reference_code
+        category: payment.category,
+        tags: payment.tags,
+        // Payment method details if available
+        ...(paymentMethodDetails && { payment_method: paymentMethodDetails }),
         created_at: payment.created_at,
         updated_at: payment.updated_at,
         completed_at: payment.completed_at,
         is_guest_payment: payment.is_guest_payment,
-        // Include guest email for guest users
-        ...(user.userType === 'guest' && { guest_email: payment.guest_email }),
+        // Include guest info for guest users and admins
+        ...((user.userType === 'guest' || user.userType === 'admin') && {
+          guest_email: payment.guest_email,
+          guest_name: guestName
+        }),
+        // Include metadata for all authenticated users (parsed)
+        ...(parsedMetadata && { metadata: parsedMetadata }),
         // Include sensitive data only for admin
         ...(user.userType === 'admin' && {
           client_secret: payment.client_secret,
-          metadata: payment.metadata,
           guest_data: payment.guest_data,
-          user_id: payment.user_id
+          user_id: payment.user_id,
+          payment_method_id: payment.payment_method_id,
+          provider_intent_id: payment.provider_intent_id,
+          error_message: payment.error_message
         })
       };
 
@@ -1640,6 +1710,17 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         if (guestEmail && guestEmail === payment.guest_email) {
           console.log(`✅ Fallback token access granted: token maps to email "${guestEmail}" which matches payment guest_email`);
 
+          // Extract guest_name for fallback response too
+          let fallbackGuestName = null;
+          if (payment.guest_data) {
+            try {
+              const guestData = JSON.parse(payment.guest_data);
+              fallbackGuestName = guestData.name || null;
+            } catch (error) {
+              console.warn('⚠️ Failed to parse guest_data for fallback:', error);
+            }
+          }
+
           // Return limited payment details for fallback access
           const paymentData = {
             id: payment.id,
@@ -1648,11 +1729,16 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
             status: payment.status,
             description: payment.description,
             provider_id: payment.provider_id,
+            // Include basic tracking fields for guest access
+            concept: payment.concept,
+            reference_code: payment.reference_code, // ✅ Include reference_code for guests too
+            category: payment.category,
             created_at: payment.created_at,
             updated_at: payment.updated_at,
             completed_at: payment.completed_at,
             is_guest_payment: payment.is_guest_payment,
-            guest_email: payment.guest_email
+            guest_email: payment.guest_email,
+            guest_name: fallbackGuestName
           };
 
           return c.json(formatResponse(

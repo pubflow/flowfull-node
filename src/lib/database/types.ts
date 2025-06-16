@@ -57,6 +57,7 @@ export interface PaymentMethodTable {
   is_guest: boolean;
   guest_email: string | null;
   guest_name: string | null;
+  metadata: string | null; // JSON string
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +126,7 @@ export interface AddressTable {
   is_guest: boolean;
   guest_email: string | null;
   guest_name: string | null;
+  metadata: string | null; // JSON string
   created_at: string;
   updated_at: string;
 }

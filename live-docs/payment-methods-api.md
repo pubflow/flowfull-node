@@ -1415,3 +1415,23 @@ X-RateLimit-Reset: 1642694400
 - **Environment Variables**: New configuration options for timeouts and formats
 - **Repository Methods**: Added unsetDefaultForUser and unsetDefaultForGuest methods
 - **Ownership Validation**: Consistent validation logic across GET, PUT, and DELETE operations
+
+### Version 2.2.0 - June 16, 2025
+
+#### 🆕 New Features
+- **Payment Continuation Support**: Added support for continuing incomplete payments that require additional authentication (3D Secure) or confirmation
+- **Enhanced Guest Information**: Automatic extraction of guest names from guest_data JSON for better display
+- **Improved Nickname Display**: Enhanced frontend patterns for displaying payment method nicknames and aliases
+- **Payment Status Management**: Support for `pending`, `requires_confirmation`, and `requires_action` payment statuses
+
+#### 🔧 Improvements
+- **Frontend Integration**: Better integration patterns for payment continuation flows
+- **Guest Data Extraction**: Automatic guest_name extraction from guest_data JSON field
+- **Nickname Priority**: Enhanced nickname/alias display with fallback patterns
+- **Payment Flow**: Streamlined payment continuation with proper redirection handling
+
+#### 📚 Documentation Updates
+- **Payment Continuation Guide**: Complete guide for implementing payment continuation flows
+- **Frontend Examples**: Enhanced JavaScript examples for payment method display
+- **Status Handling**: Documentation for handling different payment statuses
+- **Guest Information**: Updated examples for guest name extraction and display
