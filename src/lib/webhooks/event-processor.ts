@@ -4,6 +4,7 @@ import { PaymentStatus } from '@/lib/database/types';
 import { getDatabase } from '@/lib/database/connection';
 import { nanoid } from 'nanoid';
 import { receiptService } from '@/lib/email/receipt-service';
+import { Logger } from '@/lib/utils/logger';
 
 export interface WebhookEventData {
   id: string;
@@ -32,7 +33,7 @@ export class WebhookEventProcessor {
     const webhookRepo = await getWebhookRepository();
 
     try {
-      console.log(`🔄 Processing webhook event: ${eventData.type} (${eventData.id})`);
+      Logger.webhook.processing.started(eventData.type, eventData.id);
 
       let result: ProcessedWebhookResult;
 
@@ -61,12 +62,12 @@ export class WebhookEventProcessor {
       // Mark webhook as processed
       await webhookRepo.markWebhookAsProcessed(webhookId);
 
-      console.log(`✅ Webhook processed: ${eventData.type} - ${result.message}`);
+      Logger.debug(`✅ Webhook processed: ${eventData.type} - ${result.message}`);
       return result;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`❌ Webhook processing failed: ${eventData.type} - ${errorMessage}`);
+      Logger.error(`❌ Webhook processing failed: ${eventData.type} - ${errorMessage}`);
 
       // Mark webhook as processed (even if failed)
       await webhookRepo.markWebhookAsProcessed(webhookId);

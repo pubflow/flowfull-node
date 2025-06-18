@@ -291,32 +291,121 @@ WEBHOOK_RETRY_ATTEMPTS=3
 
 ## Testing Webhooks
 
-### Local Development
+### Local Development with Stripe CLI (Recommended)
 
-#### Using ngrok
+#### Installation
+```bash
+# Windows (using Scoop)
+scoop install stripe
+
+# macOS (using Homebrew)
+brew install stripe/stripe-cli/stripe
+
+# Linux (download binary)
+# Visit: https://github.com/stripe/stripe-cli/releases
+```
+
+#### Setup and Testing
+```bash
+# 1. Login to Stripe
+stripe login
+
+# 2. Forward webhooks to local bridge-payments server
+stripe listen --forward-to localhost:3001/bridge-payment/webhooks/stripe
+
+# 3. Copy the webhook signing secret from CLI output
+# Example: whsec_1234567890abcdef...
+# Add to your .env file:
+# STRIPE_WEBHOOK_SECRET=whsec_1234567890abcdef...
+
+# 4. In another terminal, trigger test events
+stripe trigger payment_intent.succeeded
+stripe trigger payment_intent.payment_failed
+stripe trigger payment_intent.requires_action
+stripe trigger payment_intent.canceled
+
+# 5. Test with custom data
+stripe trigger payment_intent.succeeded \
+  --add payment_intent:amount=5000 \
+  --add payment_intent:currency=usd \
+  --add payment_intent:description="Test donation"
+
+# 6. Monitor events in real-time
+stripe events list --limit=10
+stripe listen --print-json
+```
+
+#### Expected Output
+```bash
+# Stripe CLI will show:
+Ready! Your webhook signing secret is whsec_... (^C to quit)
+2025-06-18 01:21:14   --> payment_intent.succeeded [evt_...]
+2025-06-18 01:21:14  <--  [200] POST http://localhost:3001/bridge-payment/webhooks/stripe
+
+# Your bridge-payments server will show (if LOG_MODE=true):
+🔔 Received Stripe webhook: payment_intent.succeeded (evt_...)
+✅ Stripe webhook processed successfully
+```
+
+### Alternative: Using ngrok
 ```bash
 # Install ngrok
 npm install -g ngrok
 
 # Expose local server
-ngrok http 3000
+ngrok http 3001
 
-# Use ngrok URL for webhook endpoint
+# Use ngrok URL for webhook endpoint in Stripe Dashboard
 # https://abc123.ngrok.io/bridge-payment/webhooks/stripe
 ```
 
 #### Using Stripe CLI
 ```bash
-# Install Stripe CLI
-# Login to Stripe
+# 1. Install Stripe CLI
+# Download from: https://stripe.com/docs/stripe-cli
+# Or install via package manager:
+# Windows: scoop install stripe
+# macOS: brew install stripe/stripe-cli/stripe
+# Linux: Download binary from GitHub releases
+
+# 2. Login to your Stripe account
 stripe login
 
-# Forward webhooks to local server
+# 3. Forward webhooks to local server
 stripe listen --forward-to localhost:3000/bridge-payment/webhooks/stripe
 
-# Trigger test events
+# 4. In another terminal, trigger test events
 stripe trigger payment_intent.succeeded
 stripe trigger payment_intent.payment_failed
+stripe trigger payment_intent.requires_action
+stripe trigger payment_intent.canceled
+
+# 5. Test with specific amounts
+stripe trigger payment_intent.succeeded --add payment_intent:amount=2000
+stripe trigger payment_intent.succeeded --add payment_intent:currency=usd
+
+# 6. Monitor webhook events
+stripe events list --limit=10
+```
+
+#### Stripe CLI Advanced Testing:
+```bash
+# Test different payment scenarios
+stripe trigger payment_intent.succeeded --add payment_intent:amount=5000 --add payment_intent:currency=usd
+stripe trigger payment_intent.payment_failed --add payment_intent:last_payment_error[code]=card_declined
+stripe trigger payment_intent.requires_action --add payment_intent:next_action[type]=use_stripe_sdk
+
+# Test customer events
+stripe trigger customer.created
+stripe trigger customer.updated
+stripe trigger customer.deleted
+
+# Test payment method events
+stripe trigger payment_method.attached
+stripe trigger payment_method.detached
+
+# Monitor real-time events
+stripe listen --print-json
 ```
 
 ### Test Events
@@ -502,18 +591,66 @@ app.get('/bridge-payment/webhooks/health', async (req, res) => {
 
 ### Debugging Tools
 
+#### Webhook Diagnostics Script
+```bash
+# Run comprehensive diagnostics
+bun run scripts/webhook-diagnostics.ts
+
+# Output includes:
+# - Environment variables check
+# - Provider configurations
+# - Webhook endpoint URLs
+# - Signature validation test
+# - Recommendations
+```
+
+#### Webhook Diagnostics Endpoint
+```bash
+# Get current webhook configuration
+curl http://localhost:3001/bridge-payment/webhooks/diagnostics
+
+# Response includes provider status and configuration
+```
+
+#### Test Signature Validation
+```bash
+# Test webhook signature validation
+curl -X POST http://localhost:3001/bridge-payment/webhooks/test-signature \
+  -H "Content-Type: application/json" \
+  -d '{
+    "provider_id": "stripe",
+    "payload": "{\"id\":\"evt_test\",\"type\":\"payment_intent.succeeded\"}",
+    "signature": "t=1234567890,v1=test_signature"
+  }'
+```
+
+#### Log Control System
+```bash
+# Control webhook logging with LOG_MODE environment variable
+
+# Hide debug logs (production recommended)
+LOG_MODE=false
+
+# Show debug logs (development/debugging)
+LOG_MODE=true
+
+# Restart server to apply changes
+bun run dev
+
+# Check current logging status
+curl http://localhost:3001/bridge-payment/webhooks/diagnostics | jq '.configuration'
+```
+
 #### Webhook Event Inspector
 ```bash
 # Get recent webhook events
-curl -X GET "https://api.example.com/bridge-payment/webhooks/events?limit=10" \
-  -H "Authorization: Bearer admin_token"
+curl -X GET "http://localhost:3001/bridge-payment/webhooks/provider/stripe?limit=10"
 ```
 
-#### Replay Failed Events
+#### Process Unprocessed Webhooks
 ```bash
-# Replay a failed webhook event
-curl -X POST "https://api.example.com/bridge-payment/webhooks/replay/evt_1234567890" \
-  -H "Authorization: Bearer admin_token"
+# Manually process failed/unprocessed webhooks
+curl -X POST "http://localhost:3001/bridge-payment/webhooks/process"
 ```
 
 ---

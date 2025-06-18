@@ -998,6 +998,49 @@ payments.post('/payments/intents/:id/sync', optionalAuth(), async (c) => {
       }
     } while (retryCount <= maxRetries);
 
+    // Update payment intent metadata in Stripe if this is a guest payment
+    if (userContext.isGuest && payment.guest_email && payment.guest_data) {
+      try {
+        console.log('📝 Updating Stripe payment intent metadata with guest information...');
+
+        // Parse guest_data
+        let guestData: any = {};
+        if (typeof payment.guest_data === 'string') {
+          try {
+            guestData = JSON.parse(payment.guest_data);
+          } catch (e) {
+            console.warn('Failed to parse guest_data for metadata update:', e);
+          }
+        } else {
+          guestData = payment.guest_data;
+        }
+
+        // Prepare metadata update
+        const metadataUpdate = {
+          guest_email: payment.guest_email,
+          guest_name: guestData.name || 'Guest User',
+          ...(guestData.phone && { guest_phone: guestData.phone }),
+          is_guest_payment: 'true',
+          updated_by_sync: 'true',
+          sync_timestamp: new Date().toISOString()
+        };
+
+        // Update payment intent metadata in Stripe
+        await adapter.updatePaymentIntent(payment.provider_intent_id!, {
+          metadata: metadataUpdate
+        });
+
+        console.log('✅ Stripe payment intent metadata updated with guest information:', {
+          guest_email: metadataUpdate.guest_email,
+          guest_name: metadataUpdate.guest_name,
+          guest_phone: metadataUpdate.guest_phone || 'not provided'
+        });
+      } catch (metadataError) {
+        console.error('⚠️ Failed to update Stripe metadata:', metadataError);
+        // Don't fail the sync if metadata update fails
+      }
+    }
+
     // Update payment status in database
     const mappedStatus = mapPaymentIntentStatus(currentIntent.status);
     const updatedPayment = await paymentRepo.updateStatus(

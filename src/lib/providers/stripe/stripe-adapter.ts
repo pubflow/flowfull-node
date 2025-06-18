@@ -17,6 +17,7 @@ import {
   PaymentMethodType,
   BillingDetails
 } from '../base/payment-adapter';
+import { Logger } from '@/lib/utils/logger';
 
 export class StripeAdapter extends PaymentAdapter {
   private stripe: Stripe;
@@ -24,9 +25,11 @@ export class StripeAdapter extends PaymentAdapter {
   constructor(config: PaymentAdapterConfig) {
     super(config);
 
-    console.log('🔧 Initializing Stripe adapter...');
-    console.log('🔑 API Key:', config.api_key ? `${config.api_key.substring(0, 15)}...` : 'NOT SET');
-    console.log('🌍 Environment:', config.environment);
+    Logger.webhook.adapter.initializing(
+      'Stripe',
+      config.api_key ? config.api_key.substring(0, 15) : 'NOT SET',
+      config.environment
+    );
 
     this.stripe = new Stripe(config.api_key, {
       apiVersion: '2025-04-30.basil',
@@ -88,8 +91,8 @@ export class StripeAdapter extends PaymentAdapter {
   }
 
   async createPaymentIntent(request: CreatePaymentIntentRequest): Promise<PaymentIntent> {
-    console.log('🔄 Creating Stripe payment intent...');
-    console.log('🔑 Using API key from config:', this.config.api_key ? `${this.config.api_key.substring(0, 20)}...` : 'NOT SET');
+    Logger.debug('🔄 Creating Stripe payment intent...');
+    Logger.debug('🔑 Using API key from config:', this.config.api_key ? `${this.config.api_key.substring(0, 20)}...` : 'NOT SET');
 
     this.validateCurrency(request.currency);
     this.validateAmount(request.amount_cents, request.currency);
@@ -107,7 +110,7 @@ export class StripeAdapter extends PaymentAdapter {
     // Add authorization/capture support
     if (request.capture_method === 'manual') {
       params.capture_method = 'manual';
-      console.log('🔒 Creating payment intent with manual capture (authorization)');
+      Logger.debug('🔒 Creating payment intent with manual capture (authorization)');
     }
 
     if (request.customer_id) {
@@ -143,8 +146,8 @@ export class StripeAdapter extends PaymentAdapter {
   }
 
   async updatePaymentIntent(id: string, updates: Partial<CreatePaymentIntentRequest & { setup_future_usage?: 'on_session' | 'off_session' }>): Promise<PaymentIntent> {
-    console.log('🔄 Updating Stripe payment intent...');
-    console.log('📝 Updates:', updates);
+    Logger.debug('🔄 Updating Stripe payment intent...');
+    Logger.debug('📝 Updates:', updates);
 
     const params: Stripe.PaymentIntentUpdateParams = {};
 
@@ -175,15 +178,15 @@ export class StripeAdapter extends PaymentAdapter {
     // setup_future_usage can be added or changed from on_session to off_session
     if (updates.setup_future_usage !== undefined) {
       params.setup_future_usage = updates.setup_future_usage;
-      console.log(`🔐 Setting setup_future_usage to: ${updates.setup_future_usage}`);
+      Logger.debug(`🔐 Setting setup_future_usage to: ${updates.setup_future_usage}`);
     }
 
     try {
       const paymentIntent = await this.stripe.paymentIntents.update(id, params);
-      console.log('✅ Payment intent updated successfully');
+      Logger.success('✅ Payment intent updated successfully');
       return this.mapStripePaymentIntent(paymentIntent);
     } catch (error) {
-      console.error('❌ Failed to update payment intent:', error);
+      Logger.error('❌ Failed to update payment intent:', error instanceof Error ? error.message : 'Unknown error');
       throw this.handleStripeError(error);
     }
   }
@@ -504,15 +507,27 @@ export class StripeAdapter extends PaymentAdapter {
 
   async verifyWebhook(payload: string, signature: string): Promise<WebhookEvent> {
     if (!this.config.webhook_secret) {
-      throw new Error('Webhook secret not configured');
+      Logger.error('❌ Stripe webhook secret not configured');
+      Logger.error('   Expected environment variable: STRIPE_WEBHOOK_SECRET');
+      Logger.error('   Current webhook_secret value:', this.config.webhook_secret ? 'SET' : 'NOT SET');
+      throw new Error('Webhook secret not configured for Stripe');
     }
 
     try {
-      const event = this.stripe.webhooks.constructEvent(
+      Logger.webhook.signature.verifying(
+        'Stripe',
+        this.config.webhook_secret.substring(0, 10),
+        signature.substring(0, 20),
+        payload.length
+      );
+
+      const event = await this.stripe.webhooks.constructEventAsync(
         payload,
         signature,
         this.config.webhook_secret
       );
+
+      Logger.webhook.signature.verified('Stripe', event.id, event.type);
 
       return {
         id: event.id,
@@ -521,6 +536,20 @@ export class StripeAdapter extends PaymentAdapter {
         created: event.created
       };
     } catch (error) {
+      Logger.webhook.signature.failed('Stripe', error);
+
+      // Log specific Stripe webhook errors
+      if (error instanceof Error) {
+        if (error.message.includes('timestamp')) {
+          Logger.error('   Issue: Webhook timestamp is too old (replay attack protection)');
+        } else if (error.message.includes('signature')) {
+          Logger.error('   Issue: Invalid webhook signature');
+          Logger.error('   Check that STRIPE_WEBHOOK_SECRET matches the webhook endpoint secret in Stripe Dashboard');
+        } else if (error.message.includes('payload')) {
+          Logger.error('   Issue: Invalid webhook payload');
+        }
+      }
+
       throw this.handleStripeError(error);
     }
   }

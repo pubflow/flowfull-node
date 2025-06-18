@@ -102,6 +102,7 @@ const envSchema = z.object({
   // Logging
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   LOG_FORMAT: z.enum(['json', 'text']).default('json'),
+  LOG_MODE: z.string().default('false').transform(val => val === 'true'),
   LOG_FILE_ENABLED: z.string().default('true').transform(val => val === 'true'),
   LOG_FILE_PATH: z.string().default('./logs/bridge-payments.log'),
   LOG_ROTATION_ENABLED: z.string().default('true').transform(val => val === 'true'),
