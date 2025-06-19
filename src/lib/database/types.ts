@@ -196,6 +196,10 @@ export interface SubscriptionTable {
   reference_code: string | null; // Machine-readable code for analytics (e.g., "subscription_monthly", "plan_premium_annual")
   category: string | null; // High-level category (e.g., "subscription", "trial", "upgrade", "downgrade")
   tags: string | null; // Comma-separated tags for flexible categorization (e.g., "promotion,summer,discount,premium")
+  // Guest subscription support (inspired by payments table)
+  is_guest_subscription: number; // Track if this is a guest subscription (0 = false, 1 = true)
+  guest_data: string | null; // JSON string with guest information (email, name, phone, etc.)
+  guest_email: string | null; // Extracted guest email for indexing and queries
 }
 
 // Product table interface (imported from products repository)

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Problema con tu Subscripción - {{client_name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo-header {
+            background-color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .organization-logo {
+            max-width: 150px;
+            max-height: 80px;
+            height: auto;
+            width: auto;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Header (opcional) -->
+        {{logo_header}}
+
+        <div style="background: linear-gradient(135deg, #dc3545, #c82333); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: bold;">⚠️ Problema con tu Subscripción</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">{{client_name}}</p>
+        </div>
+        
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #333; margin-bottom: 20px; font-size: 24px;">Necesitamos tu atención</h2>
+            
+            <p style="color: #666; line-height: 1.6; margin-bottom: 25px; font-size: 16px;">
+                Hemos detectado un problema con el pago de tu subscripción <strong>{{subscription_concept}}</strong>. 
+                No te preocupes, esto puede solucionarse fácilmente.
+            </p>
+
+            <!-- Detalles del Problema -->
+            <div style="background-color: #f8d7da; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #dc3545;">
+                <h3 style="color: #721c24; margin: 0 0 15px 0; font-size: 18px;">❌ Detalles del Problema</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #721c24; font-weight: bold;">Subscripción:</td>
+                        <td style="padding: 8px 0; color: #721c24;">{{subscription_concept}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #721c24; font-weight: bold;">Monto:</td>
+                        <td style="padding: 8px 0; color: #721c24; font-weight: bold;">{{subscription_amount}} {{subscription_currency}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #721c24; font-weight: bold;">Motivo:</td>
+                        <td style="padding: 8px 0; color: #721c24;">{{error_message}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #721c24; font-weight: bold;">Fecha del Intento:</td>
+                        <td style="padding: 8px 0; color: #721c24;">{{current_date}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Botón de Acción Principal -->
+            <div style="text-align: center; margin: 35px 0;">
+                <a href="{{retry_url}}" style="background: linear-gradient(135deg, #dc3545, #c82333); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);">
+                    🔄 Reintentar Pago Ahora
+                </a>
+            </div>
+
+            <!-- Posibles Soluciones -->
+            <div style="background-color: #fff3cd; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                <h3 style="color: #856404; margin: 0 0 15px 0; font-size: 18px;">💡 Posibles Soluciones</h3>
+                <ul style="color: #856404; margin: 0; padding-left: 20px; line-height: 1.8;">
+                    <li><strong>Verificar fondos:</strong> Asegúrate de que tu tarjeta tenga fondos suficientes</li>
+                    <li><strong>Actualizar método de pago:</strong> Tu tarjeta puede haber expirado o sido reemplazada</li>
+                    <li><strong>Contactar al banco:</strong> Algunos bancos bloquean pagos automáticos por seguridad</li>
+                    <li><strong>Revisar límites:</strong> Verifica que no hayas alcanzado el límite de tu tarjeta</li>
+                </ul>
+            </div>
+
+            <!-- Información Importante -->
+            <div style="background-color: #e7f3ff; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #007bff;">
+                <h4 style="color: #0056b3; margin: 0 0 10px 0; font-size: 16px;">⏰ ¿Qué pasa ahora?</h4>
+                <p style="color: #0056b3; margin: 0; line-height: 1.6;">
+                    Tu subscripción permanecerá activa por un período de gracia mientras resolvemos este problema. 
+                    Reintentaremos el pago automáticamente en los próximos días, pero te recomendamos 
+                    actualizar tu método de pago lo antes posible.
+                </p>
+            </div>
+
+            <!-- Gestión de Métodos de Pago -->
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f7fafc; border-radius: 8px;">
+                <p style="color: #4a5568; margin-bottom: 20px; font-size: 16px;">Gestiona tus métodos de pago:</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center;">
+                    <a href="{{app_url}}/dashboard" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                        📊 Mi Panel de Control
+                    </a>
+                    <a href="{{app_url}}/account/settings" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #4fd1c7 0%, #38b2ac 100%); color: white;">
+                        ⚙️ Configuración
+                    </a>
+                </div>
+            </div>
+
+            <!-- Soporte -->
+            <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 30px 0; text-align: center;">
+                <h4 style="color: #333; margin: 0 0 15px 0; font-size: 18px;">🤝 ¿Necesitas Ayuda?</h4>
+                <p style="color: #666; margin: 0 0 15px 0; line-height: 1.6;">
+                    Si continúas teniendo problemas o necesitas asistencia personalizada, 
+                    nuestro equipo de soporte está listo para ayudarte.
+                </p>
+                <a href="{{app_url}}/support" style="background-color: #6c757d; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">
+                    📞 Contactar Soporte
+                </a>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 25px; text-align: center; border-top: 1px solid #dee2e6;">
+            <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px; font-weight: bold;">
+                Estamos aquí para ayudarte - {{client_name}}
+            </p>
+            <p style="margin: 0; color: #6c757d; font-size: 12px;">
+                {{provider_name}} - Sistema de Subscripciones<br>
+                Este email fue enviado desde {{app_url}} el {{current_date}}<br>
+                ID de Subscripción: {{subscription_id}}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

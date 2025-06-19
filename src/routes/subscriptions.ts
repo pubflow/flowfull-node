@@ -238,7 +238,14 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         concept: validatedData.concept || `${billingInterval.charAt(0).toUpperCase() + billingInterval.slice(1)} Subscription`,
         reference_code: validatedData.reference_code || `subscription_${billingInterval}_${product.id}`,
         category: validatedData.category || 'subscription',
-        tags: validatedData.tags
+        tags: validatedData.tags,
+        // Guest subscription support
+        is_guest_subscription: customer.is_guest ? 1 : 0,
+        guest_data: customer.is_guest ? JSON.stringify(validatedData.guest_data || {
+          email: customer.guest_email,
+          name: customer.guest_data ? JSON.parse(customer.guest_data).name : ''
+        }) : null,
+        guest_email: customer.is_guest ? customer.guest_email : null
       };
 
       // TODO: Uncomment when provider integration is implemented
@@ -330,7 +337,14 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         concept: validatedData.concept || `Custom ${validatedData.billing_interval.charAt(0).toUpperCase() + validatedData.billing_interval.slice(1)} Subscription`,
         reference_code: validatedData.reference_code || `subscription_custom_${validatedData.billing_interval}`,
         category: validatedData.category || 'subscription',
-        tags: validatedData.tags
+        tags: validatedData.tags,
+        // Guest subscription support
+        is_guest_subscription: customer.is_guest ? 1 : 0,
+        guest_data: customer.is_guest ? JSON.stringify(validatedData.guest_data || {
+          email: customer.guest_email,
+          name: customer.guest_data ? JSON.parse(customer.guest_data).name : 'Guest User'
+        }) : null,
+        guest_email: customer.is_guest ? customer.guest_email : null
       };
 
       // TODO: Uncomment when provider integration is implemented
@@ -473,6 +487,9 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       reference_code: subscription.reference_code,
       category: subscription.category,
       tags: subscription.tags,
+      // Guest subscription fields
+      is_guest_subscription: subscription.is_guest_subscription,
+      guest_email: subscription.guest_email,
       created_at: subscription.created_at
     }, 201);
 
@@ -556,6 +573,9 @@ subscriptions.get('/:id', optionalAuthMiddleware, async (c) => {
         reference_code: subscription.reference_code,
         category: subscription.category,
         tags: subscription.tags,
+        // Guest subscription fields
+        is_guest_subscription: subscription.is_guest_subscription,
+        guest_email: subscription.guest_email,
         created_at: subscription.created_at,
         updated_at: subscription.updated_at
       }

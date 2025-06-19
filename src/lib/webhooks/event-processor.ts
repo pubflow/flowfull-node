@@ -4,6 +4,9 @@ import { PaymentStatus } from '@/lib/database/types';
 import { getDatabase } from '@/lib/database/connection';
 import { nanoid } from 'nanoid';
 import { receiptService } from '@/lib/email/receipt-service';
+import { subscriptionEmailService } from '@/lib/email/subscription-email-service';
+import { getSubscriptionRepository } from '@/lib/database/repositories/subscriptions';
+import { getCustomerRepository } from '@/lib/database/repositories/customers';
 import { Logger } from '@/lib/utils/logger';
 
 export interface WebhookEventData {
@@ -42,6 +45,12 @@ export class WebhookEventProcessor {
         result = await this.handlePaymentIntentEvent(eventData);
       } else if (eventData.type.startsWith('payment_method.')) {
         result = await this.handlePaymentMethodEvent(eventData);
+      } else if (eventData.type.startsWith('customer.subscription.') || eventData.type.includes('subscription')) {
+        // Stripe subscription events
+        result = await this.handleSubscriptionEvent(eventData);
+      } else if (eventData.type.startsWith('charge.refund') || eventData.type.includes('refund')) {
+        // Stripe refund events
+        result = await this.handleRefundEvent(eventData);
       } else if (eventData.type.startsWith('customer.')) {
         result = await this.handleCustomerEvent(eventData);
       } else if (eventData.type.startsWith('invoice.')) {
@@ -182,6 +191,222 @@ export class WebhookEventProcessor {
     };
   }
 
+  private async handleSubscriptionEvent(eventData: WebhookEventData): Promise<ProcessedWebhookResult> {
+    const db = await getDatabase();
+    const subscriptionRepo = await getSubscriptionRepository();
+    const customerRepo = await getCustomerRepository();
+    const subscription = eventData.data.object;
+
+    // Find subscription by provider subscription ID
+    const localSubscription = await subscriptionRepo.findByProviderSubscriptionId(subscription.id);
+    if (!localSubscription) {
+      return {
+        success: true,
+        message: `Subscription not found for provider ID ${subscription.id} (external subscription)`
+      };
+    }
+
+    // Get customer email for notifications
+    let customerEmail: string | null = null;
+    try {
+      if (localSubscription.is_guest_subscription) {
+        // For guest subscriptions, use guest_email
+        customerEmail = localSubscription.guest_email;
+      } else {
+        // For user subscriptions, get customer email
+        const customer = await customerRepo.findById(localSubscription.customer_id);
+        if (customer) {
+          if (customer.is_guest && customer.guest_email) {
+            customerEmail = customer.guest_email;
+          } else if (customer.guest_data) {
+            const guestData = JSON.parse(customer.guest_data);
+            customerEmail = guestData.email;
+          }
+          // TODO: For authenticated users, get email from users table
+        }
+      }
+    } catch (error) {
+      Logger.error(`[WebhookProcessor] Failed to get customer email for subscription ${localSubscription.id}:`, error);
+    }
+
+    let emailSent = false;
+    let updateResult: any = null;
+
+    switch (eventData.type) {
+      case 'customer.subscription.created':
+        Logger.info(`Subscription ${localSubscription.id} created via webhook`);
+        if (customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionSuccessEmail(localSubscription, customerEmail);
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send subscription created email:`, emailError);
+          }
+        }
+        break;
+
+      case 'customer.subscription.updated':
+        // Update local subscription status
+        try {
+          updateResult = await subscriptionRepo.updateStatus(localSubscription.id, subscription.status);
+          Logger.info(`Subscription ${localSubscription.id} status updated to ${subscription.status}`);
+        } catch (error) {
+          Logger.error(`[WebhookProcessor] Failed to update subscription status:`, error);
+        }
+        break;
+
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.cancelled':
+        // Update local subscription as cancelled
+        try {
+          updateResult = await subscriptionRepo.updateStatus(localSubscription.id, 'cancelled');
+          Logger.info(`Subscription ${localSubscription.id} cancelled via webhook`);
+
+          if (customerEmail) {
+            try {
+              await subscriptionEmailService.sendSubscriptionCancelledEmail(
+                localSubscription,
+                customerEmail,
+                'Subscription cancelled via payment provider'
+              );
+              emailSent = true;
+            } catch (emailError) {
+              Logger.error(`[WebhookProcessor] Failed to send subscription cancelled email:`, emailError);
+            }
+          }
+        } catch (error) {
+          Logger.error(`[WebhookProcessor] Failed to update subscription to cancelled:`, error);
+        }
+        break;
+
+      case 'invoice.payment_failed':
+        // Handle subscription payment failure
+        if (subscription.id === localSubscription.provider_subscription_id && customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionFailedEmail(
+              localSubscription,
+              customerEmail,
+              eventData.data.object.last_payment_error?.message || 'Payment failed'
+            );
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send subscription failed email:`, emailError);
+          }
+        }
+        break;
+
+      case 'invoice.payment_succeeded':
+        // Handle successful subscription renewal
+        if (subscription.id === localSubscription.provider_subscription_id && customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionSuccessEmail(localSubscription, customerEmail);
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send subscription renewal email:`, emailError);
+          }
+        }
+        break;
+
+      case 'charge.dispute.created':
+      case 'invoice.payment_action_required':
+        // Handle subscription payment disputes or actions required
+        Logger.info(`Subscription ${localSubscription.id} requires attention: ${eventData.type}`);
+        break;
+
+      case 'customer.subscription.trial_will_end':
+        // Handle trial ending notification
+        Logger.info(`Subscription ${localSubscription.id} trial ending soon`);
+        // TODO: Implement trial ending email notification
+        break;
+    }
+
+    const message = `Subscription event ${eventData.type} processed for ${localSubscription.id}${emailSent ? ' (email sent)' : ''}`;
+    const updatedEntities = [`subscription:${localSubscription.id}`];
+
+    return {
+      success: true,
+      message,
+      updated_entities: updatedEntities
+    };
+  }
+
+  private async handleRefundEvent(eventData: WebhookEventData): Promise<ProcessedWebhookResult> {
+    const subscriptionRepo = await getSubscriptionRepository();
+    const customerRepo = await getCustomerRepository();
+    const refund = eventData.data.object;
+
+    // Try to find related subscription by charge ID or payment intent
+    let relatedSubscription = null;
+    let customerEmail: string | null = null;
+
+    try {
+      // For subscription refunds, we need to find the subscription
+      // This is a simplified approach - in production you might need more sophisticated matching
+      if (refund.charge && refund.charge.invoice) {
+        // Find subscription by invoice
+        const subscriptions = await subscriptionRepo.findByProviderInvoiceId(refund.charge.invoice);
+        if (subscriptions.length > 0) {
+          relatedSubscription = subscriptions[0];
+        }
+      }
+
+      if (relatedSubscription) {
+        // Get customer email for notifications
+        if (relatedSubscription.is_guest_subscription) {
+          customerEmail = relatedSubscription.guest_email;
+        } else {
+          const customer = await customerRepo.findById(relatedSubscription.customer_id);
+          if (customer) {
+            if (customer.is_guest && customer.guest_email) {
+              customerEmail = customer.guest_email;
+            } else if (customer.guest_data) {
+              const guestData = JSON.parse(customer.guest_data);
+              customerEmail = guestData.email;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      Logger.error(`[WebhookProcessor] Failed to find related subscription for refund ${refund.id}:`, error);
+    }
+
+    let emailSent = false;
+
+    switch (eventData.type) {
+      case 'charge.refund.created':
+        Logger.info(`Refund ${refund.id} created for amount ${refund.amount}`);
+
+        if (relatedSubscription && customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionRefundedEmail(
+              relatedSubscription,
+              customerEmail,
+              refund.amount, // Amount in cents
+              refund.id,
+              refund.reason || 'Refund processed'
+            );
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send refund email:`, emailError);
+          }
+        }
+        break;
+
+      case 'charge.refund.updated':
+        Logger.info(`Refund ${refund.id} updated with status ${refund.status}`);
+        break;
+    }
+
+    const message = `Refund event ${eventData.type} processed for ${refund.id}${emailSent ? ' (email sent)' : ''}`;
+    const updatedEntities = relatedSubscription ? [`subscription:${relatedSubscription.id}`] : [];
+
+    return {
+      success: true,
+      message,
+      updated_entities: updatedEntities
+    };
+  }
+
   private async handleInvoiceEvent(eventData: WebhookEventData): Promise<ProcessedWebhookResult> {
     // Handle invoice events
     const invoice = eventData.data.object;
@@ -253,23 +478,111 @@ export class WebhookEventProcessor {
 
   private async handlePayPalBillingEvent(eventData: WebhookEventData): Promise<ProcessedWebhookResult> {
     // Handle PayPal billing/subscription events
+    const subscriptionRepo = await getSubscriptionRepository();
+    const customerRepo = await getCustomerRepository();
     const resource = eventData.data.resource;
+
+    // Find subscription by provider subscription ID
+    const localSubscription = await subscriptionRepo.findByProviderSubscriptionId(resource.id);
+    if (!localSubscription) {
+      return {
+        success: true,
+        message: `PayPal subscription not found for provider ID ${resource.id} (external subscription)`
+      };
+    }
+
+    // Get customer email for notifications
+    let customerEmail: string | null = null;
+    try {
+      if (localSubscription.is_guest_subscription) {
+        customerEmail = localSubscription.guest_email;
+      } else {
+        const customer = await customerRepo.findById(localSubscription.customer_id);
+        if (customer) {
+          if (customer.is_guest && customer.guest_email) {
+            customerEmail = customer.guest_email;
+          } else if (customer.guest_data) {
+            const guestData = JSON.parse(customer.guest_data);
+            customerEmail = guestData.email;
+          }
+        }
+      }
+    } catch (error) {
+      Logger.error(`[WebhookProcessor] Failed to get customer email for PayPal subscription ${localSubscription.id}:`, error);
+    }
+
+    let emailSent = false;
 
     switch (eventData.type) {
       case 'BILLING.SUBSCRIPTION.CREATED':
-        console.log(`PayPal subscription ${resource.id} created`);
+        Logger.info(`PayPal subscription ${localSubscription.id} created`);
+        if (customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionSuccessEmail(localSubscription, customerEmail);
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send PayPal subscription created email:`, emailError);
+          }
+        }
         break;
+
       case 'BILLING.SUBSCRIPTION.CANCELLED':
-        console.log(`PayPal subscription ${resource.id} cancelled`);
+        try {
+          await subscriptionRepo.updateStatus(localSubscription.id, 'cancelled');
+          Logger.info(`PayPal subscription ${localSubscription.id} cancelled`);
+
+          if (customerEmail) {
+            try {
+              await subscriptionEmailService.sendSubscriptionCancelledEmail(
+                localSubscription,
+                customerEmail,
+                'Subscription cancelled via PayPal'
+              );
+              emailSent = true;
+            } catch (emailError) {
+              Logger.error(`[WebhookProcessor] Failed to send PayPal subscription cancelled email:`, emailError);
+            }
+          }
+        } catch (error) {
+          Logger.error(`[WebhookProcessor] Failed to update PayPal subscription to cancelled:`, error);
+        }
         break;
+
       case 'BILLING.SUBSCRIPTION.PAYMENT.FAILED':
-        console.log(`PayPal subscription ${resource.id} payment failed`);
+        Logger.info(`PayPal subscription ${localSubscription.id} payment failed`);
+        if (customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionFailedEmail(
+              localSubscription,
+              customerEmail,
+              'PayPal subscription payment failed'
+            );
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send PayPal subscription failed email:`, emailError);
+          }
+        }
+        break;
+
+      case 'BILLING.SUBSCRIPTION.PAYMENT.COMPLETED':
+        Logger.info(`PayPal subscription ${localSubscription.id} payment completed`);
+        if (customerEmail) {
+          try {
+            await subscriptionEmailService.sendSubscriptionSuccessEmail(localSubscription, customerEmail);
+            emailSent = true;
+          } catch (emailError) {
+            Logger.error(`[WebhookProcessor] Failed to send PayPal subscription success email:`, emailError);
+          }
+        }
         break;
     }
 
+    const message = `PayPal billing event ${eventData.type} processed for ${localSubscription.id}${emailSent ? ' (email sent)' : ''}`;
+
     return {
       success: true,
-      message: `PayPal billing event ${eventData.type} processed`
+      message,
+      updated_entities: [`subscription:${localSubscription.id}`]
     };
   }
 

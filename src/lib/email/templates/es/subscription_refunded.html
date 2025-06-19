@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reembolso de Subscripción Procesado</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .logo-header {
+            background-color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .organization-logo {
+            max-width: 150px;
+            max-height: 80px;
+            height: auto;
+            width: auto;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 40px 30px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            margin-bottom: 25px;
+            color: #2d3748;
+        }
+        
+        .refund-card {
+            background: linear-gradient(135deg, #f0fff4 0%, #c6f6d5 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin: 25px 0;
+            border-left: 4px solid #38a169;
+        }
+        
+        .refund-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #22543d;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .refund-title::before {
+            content: "💰";
+            margin-right: 10px;
+            font-size: 24px;
+        }
+        
+        .refund-details {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+        
+        .detail-label {
+            font-weight: 500;
+            color: #4a5568;
+            font-size: 14px;
+        }
+        
+        .detail-value {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 16px;
+        }
+        
+        .amount {
+            font-size: 24px;
+            color: #38a169;
+            font-weight: 700;
+        }
+        
+        .status-success {
+            background-color: #c6f6d5;
+            color: #22543d;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .info-section {
+            background-color: #ebf8ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+            border-left: 4px solid #3182ce;
+        }
+        
+        .info-title {
+            font-weight: 600;
+            color: #2c5282;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .info-text {
+            color: #2d3748;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .action-buttons {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
+            background-color: #f7fafc;
+            border-radius: 8px;
+        }
+        
+        .action-buttons p {
+            margin-bottom: 20px;
+            color: #4a5568;
+            font-size: 16px;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+            transition: all 0.3s ease;
+            min-width: 140px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #4fd1c7 0%, #38b2ac 100%);
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #38b2ac 0%, #319795 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(79, 209, 199, 0.3);
+        }
+        
+        .contact-info {
+            background-color: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+        }
+        
+        .contact-title {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #4a5568;
+        }
+        
+        .contact-item::before {
+            margin-right: 8px;
+            width: 16px;
+        }
+        
+        .contact-phone::before { content: "📞"; }
+        .contact-email::before { content: "📧"; }
+        .contact-address::before { content: "📍"; }
+        
+        .footer {
+            background-color: #2d3748;
+            color: #a0aec0;
+            padding: 25px 30px;
+            text-align: center;
+            font-size: 12px;
+        }
+        
+        .footer-links {
+            margin-bottom: 15px;
+        }
+        
+        .footer-links a {
+            color: #81e6d9;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        
+        .footer-links a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+            
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .refund-card {
+                padding: 20px;
+            }
+            
+            .detail-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+            
+            .amount {
+                font-size: 20px;
+            }
+            
+            .button-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .btn {
+                min-width: auto;
+                width: 100%;
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Header (optional) -->
+        {{logo_header}}
+
+        <!-- Header -->
+        <div class="header">
+            <h1>💰 Reembolso Procesado</h1>
+            <p>Su reembolso de subscripción ha sido completado</p>
+        </div>
+        
+        <!-- Content -->
+        <div class="content">
+            <div class="greeting">
+                Estimado/a <strong>{{customer_name}}</strong>,
+            </div>
+            
+            <p>Su solicitud de reembolso para la subscripción <strong>{{subscription_concept}}</strong> ha sido procesada exitosamente. Los fondos serán devueltos a su método de pago original.</p>
+            
+            <!-- Refund Details -->
+            <div class="refund-card">
+                <div class="refund-title">
+                    Detalles del Reembolso
+                </div>
+                
+                <div class="refund-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Monto Reembolsado</span>
+                        <span class="detail-value amount">{{refund_amount}} {{subscription_currency}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Subscripción</span>
+                        <span class="detail-value">{{subscription_concept}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Fecha del Reembolso</span>
+                        <span class="detail-value">{{current_date}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">ID de Reembolso</span>
+                        <span class="detail-value">{{refund_id}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Motivo</span>
+                        <span class="detail-value">{{refund_reason}}</span>
+                    </div>
+                    
+                    <div class="detail-row">
+                        <span class="detail-label">Estado</span>
+                        <span class="status-success">✓ Procesado</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Information Section -->
+            <div class="info-section">
+                <div class="info-title">⏰ Tiempo de Procesamiento</div>
+                <div class="info-text">
+                    El reembolso aparecerá en su estado de cuenta dentro de 3-5 días hábiles para tarjetas de crédito 
+                    y hasta 10 días hábiles para transferencias bancarias. El tiempo exacto depende de su institución financiera.
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <p>Gestione su cuenta:</p>
+                <div class="button-group">
+                    <a href="{{app_url}}/dashboard" class="btn btn-primary">
+                        📊 Mi Panel de Control
+                    </a>
+                    <a href="{{app_url}}/account/settings" class="btn btn-secondary">
+                        ⚙️ Configuración
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Contact Information -->
+            <div class="contact-info">
+                <div class="contact-title">📞 ¿Necesita Ayuda?</div>
+                <p style="margin-bottom: 15px; color: #4a5568; font-size: 14px;">
+                    Si tiene preguntas sobre este reembolso o necesita asistencia adicional, 
+                    no dude en contactarnos:
+                </p>
+                <div class="contact-item contact-phone">{{contact_phone}}</div>
+                <div class="contact-item contact-email">{{contact_email}}</div>
+                <div class="contact-item contact-address">{{contact_address}}</div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-links">
+                <a href="{{privacy_url}}">Política de Privacidad</a>
+                <a href="{{terms_url}}">Términos de Servicio</a>
+                <a href="{{contact_url}}">Contacto</a>
+            </div>
+            <p>© {{current_year}} {{client_name}}. Todos los derechos reservados.</p>
+            <p>Este es un correo automático, por favor no responda a esta dirección.</p>
+        </div>
+    </div>
+</body>
+</html>

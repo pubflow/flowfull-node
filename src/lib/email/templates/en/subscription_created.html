@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Activated! - {{client_name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo-header {
+            background-color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .organization-logo {
+            max-width: 150px;
+            max-height: 80px;
+            height: auto;
+            width: auto;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Header (optional) -->
+        {{logo_header}}
+
+        <div style="background: linear-gradient(135deg, #28a745, #20c997); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: bold;">🎉 Subscription Activated!</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">{{client_name}}</p>
+        </div>
+        
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #333; margin-bottom: 20px; font-size: 24px;">Welcome to {{subscription_concept}}!</h2>
+            
+            <p style="color: #666; line-height: 1.6; margin-bottom: 25px; font-size: 16px;">
+                Excellent! Your subscription has been successfully activated. You can now enjoy all the benefits included in your plan.
+            </p>
+
+            <!-- Subscription Details -->
+            <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #28a745;">
+                <h3 style="color: #333; margin: 0 0 15px 0; font-size: 18px;">📋 Your Subscription Details</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Plan:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_concept}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Description:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_description}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Price:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: bold;">{{subscription_amount}} {{subscription_currency}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Billing:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_interval}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Next Payment:</td>
+                        <td style="padding: 8px 0; color: #333;">{{next_billing_date}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Status:</td>
+                        <td style="padding: 8px 0; color: #28a745; font-weight: bold;">✅ Active</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Action Button -->
+            <div style="text-align: center; margin: 35px 0;">
+                <a href="{{app_url}}/dashboard/subscriptions" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);">
+                    📊 View My Dashboard
+                </a>
+            </div>
+
+            <!-- Important Information -->
+            <div style="background-color: #e7f3ff; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #007bff;">
+                <h4 style="color: #0056b3; margin: 0 0 10px 0; font-size: 16px;">💡 Important Information</h4>
+                <ul style="color: #0056b3; margin: 0; padding-left: 20px; line-height: 1.6;">
+                    <li>Your subscription will automatically renew every {{subscription_interval}}</li>
+                    <li>You can cancel anytime from your dashboard</li>
+                    <li>You'll receive a reminder before each renewal</li>
+                    <li>24/7 support is available to help you</li>
+                </ul>
+            </div>
+
+            <!-- Support -->
+            <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                <h4 style="color: #856404; margin: 0 0 10px 0; font-size: 16px;">🤝 Need Help?</h4>
+                <p style="color: #856404; margin: 0; line-height: 1.6;">
+                    If you have any questions about your subscription or need assistance, don't hesitate to contact us. 
+                    We're here to help you make the most of your plan.
+                </p>
+            </div>
+
+            <!-- Subscription Management -->
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f7fafc; border-radius: 8px;">
+                <p style="color: #4a5568; margin-bottom: 20px; font-size: 16px;">Manage your subscription:</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center;">
+                    <a href="{{app_url}}/dashboard" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                        📊 My Dashboard
+                    </a>
+                    <a href="{{app_url}}/account/settings" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #4fd1c7 0%, #38b2ac 100%); color: white;">
+                        ⚙️ Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 25px; text-align: center; border-top: 1px solid #dee2e6;">
+            <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px; font-weight: bold;">
+                Thank you for trusting {{client_name}}!
+            </p>
+            <p style="margin: 0; color: #6c757d; font-size: 12px;">
+                {{provider_name}} - Subscription System<br>
+                This email was sent from {{app_url}} on {{current_date}}<br>
+                Subscription ID: {{subscription_id}}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

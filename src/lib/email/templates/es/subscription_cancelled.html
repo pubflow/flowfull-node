@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscripción Cancelada - {{client_name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo-header {
+            background-color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .organization-logo {
+            max-width: 150px;
+            max-height: 80px;
+            height: auto;
+            width: auto;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Header (opcional) -->
+        {{logo_header}}
+
+        <div style="background: linear-gradient(135deg, #6c757d, #5a6268); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: bold;">📋 Subscripción Cancelada</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">{{client_name}}</p>
+        </div>
+        
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #333; margin-bottom: 20px; font-size: 24px;">Lamentamos verte partir</h2>
+            
+            <p style="color: #666; line-height: 1.6; margin-bottom: 25px; font-size: 16px;">
+                Tu subscripción a <strong>{{subscription_concept}}</strong> ha sido cancelada exitosamente. 
+                Aunque es triste verte partir, respetamos tu decisión.
+            </p>
+
+            <!-- Detalles de la Cancelación -->
+            <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #6c757d;">
+                <h3 style="color: #333; margin: 0 0 15px 0; font-size: 18px;">📋 Detalles de la Cancelación</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Plan Cancelado:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_concept}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Monto:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_amount}} {{subscription_currency}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Motivo:</td>
+                        <td style="padding: 8px 0; color: #333;">{{cancellation_reason}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Fecha de Cancelación:</td>
+                        <td style="padding: 8px 0; color: #333;">{{current_date}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Acceso hasta:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: bold;">{{end_date}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Información Importante -->
+            <div style="background-color: #e7f3ff; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #007bff;">
+                <h3 style="color: #0056b3; margin: 0 0 15px 0; font-size: 18px;">💡 ¿Qué pasa ahora?</h3>
+                <ul style="color: #0056b3; margin: 0; padding-left: 20px; line-height: 1.8;">
+                    <li><strong>Acceso continuo:</strong> Mantienes acceso completo hasta {{end_date}}</li>
+                    <li><strong>Sin cargos futuros:</strong> No se realizarán más cobros automáticos</li>
+                    <li><strong>Datos seguros:</strong> Tu información permanece protegida en nuestros sistemas</li>
+                    <li><strong>Reactivación fácil:</strong> Puedes reactivar tu subscripción en cualquier momento</li>
+                </ul>
+            </div>
+
+            <!-- Botón de Reactivación -->
+            <div style="text-align: center; margin: 35px 0;">
+                <p style="color: #666; margin-bottom: 15px; font-size: 16px;">¿Cambiaste de opinión?</p>
+                <a href="{{reactivate_url}}" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);">
+                    🔄 Reactivar Subscripción
+                </a>
+            </div>
+
+            <!-- Feedback -->
+            <div style="background-color: #fff3cd; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                <h3 style="color: #856404; margin: 0 0 15px 0; font-size: 18px;">💭 Tu Opinión es Importante</h3>
+                <p style="color: #856404; margin: 0 0 15px 0; line-height: 1.6;">
+                    Nos encantaría saber qué podríamos haber hecho mejor. Tu feedback nos ayuda a mejorar 
+                    nuestros servicios para futuros usuarios.
+                </p>
+                <div style="text-align: center;">
+                    <a href="{{app_url}}/feedback?type=cancellation" style="background-color: #ffc107; color: #856404; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">
+                        📝 Compartir Feedback
+                    </a>
+                </div>
+            </div>
+
+            <!-- Alternativas -->
+            <div style="background-color: #d1ecf1; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #17a2b8;">
+                <h3 style="color: #0c5460; margin: 0 0 15px 0; font-size: 18px;">🎯 ¿Buscas Algo Diferente?</h3>
+                <p style="color: #0c5460; margin: 0 0 15px 0; line-height: 1.6;">
+                    Quizás tenemos otro plan que se adapte mejor a tus necesidades. 
+                    Explora nuestras opciones disponibles.
+                </p>
+                <div style="text-align: center;">
+                    <a href="{{app_url}}/plans" style="background-color: #17a2b8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">
+                        👀 Ver Otros Planes
+                    </a>
+                </div>
+            </div>
+
+            <!-- Gestión de Cuenta -->
+            <div style="text-align: center; margin: 30px 0; padding: 20px; background-color: #f7fafc; border-radius: 8px;">
+                <p style="color: #4a5568; margin-bottom: 20px; font-size: 16px;">Gestiona tu cuenta:</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center;">
+                    <a href="{{app_url}}/dashboard" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                        📊 Mi Panel de Control
+                    </a>
+                    <a href="{{app_url}}/account/settings" style="display: inline-block; padding: 12px 20px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; text-align: center; min-width: 140px; background: linear-gradient(135deg, #4fd1c7 0%, #38b2ac 100%); color: white;">
+                        ⚙️ Configuración
+                    </a>
+                </div>
+            </div>
+
+            <!-- Soporte -->
+            <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 30px 0; text-align: center;">
+                <h4 style="color: #333; margin: 0 0 15px 0; font-size: 18px;">🤝 Siempre Aquí para Ti</h4>
+                <p style="color: #666; margin: 0 0 15px 0; line-height: 1.6;">
+                    Aunque hayas cancelado tu subscripción, nuestro equipo de soporte sigue disponible 
+                    para ayudarte con cualquier pregunta o problema.
+                </p>
+                <a href="{{app_url}}/support" style="background-color: #6c757d; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 14px; font-weight: bold;">
+                    📞 Contactar Soporte
+                </a>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 25px; text-align: center; border-top: 1px solid #dee2e6;">
+            <p style="margin: 0 0 10px 0; color: #6c757d; font-size: 14px; font-weight: bold;">
+                Gracias por haber sido parte de {{client_name}}
+            </p>
+            <p style="margin: 0; color: #6c757d; font-size: 12px;">
+                {{provider_name}} - Sistema de Subscripciones<br>
+                Este email fue enviado desde {{app_url}} el {{current_date}}<br>
+                ID de Subscripción: {{subscription_id}}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

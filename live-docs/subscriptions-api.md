@@ -106,6 +106,7 @@ Content-Type: application/json
 | `guest_data` | object | No* | Guest customer data (*required for guests) |
 | `guest_data.email` | string | Yes | Guest email address |
 | `guest_data.name` | string | Yes | Guest full name |
+| `guest_data.phone` | string | No | Guest phone number (optional) |
 | **Enhanced Tracking Fields** | | | **Optional fields for analytics and provider integration** |
 | `description` | string | No | Human-readable subscription description |
 | `concept` | string | No | **Primary subscription title/name** (used in providers like Stripe) |
@@ -144,6 +145,8 @@ Content-Type: application/json
   "reference_code": "sub_premium_monthly_2024",
   "category": "subscription",
   "tags": "premium,business,monthly",
+  "is_guest_subscription": 0,
+  "guest_email": null,
   "created_at": "2025-01-15T10:30:00Z"
 }
 ```
@@ -252,6 +255,156 @@ curl -X POST "https://api.example.com/bridge-payment/subscriptions" \
 ```
 
 **Note**: For custom subscriptions, the `concept` becomes the product name in Stripe.
+
+---
+
+## Guest Subscriptions
+
+Guest subscriptions allow customers to create subscriptions without creating an account. This is perfect for quick checkouts and reducing friction in the subscription process.
+
+### Guest Subscription Features
+
+- ✅ **No Account Required**: Customers can subscribe using just email and name
+- ✅ **Email Notifications**: Automatic subscription emails (creation, renewal, cancellation)
+- ✅ **Full Lifecycle Support**: Create, manage, cancel, and reactivate guest subscriptions
+- ✅ **Provider Integration**: Guest subscriptions work with Stripe, PayPal, and other providers
+- ✅ **Webhook Support**: Automatic processing of subscription events
+- ✅ **Guest Data Storage**: Secure storage of guest information for subscription management
+
+### Guest Subscription Flow
+
+1. **Customer provides email and name** (no account creation)
+2. **Payment method is collected** and stored as guest payment method
+3. **Subscription is created** with `is_guest_subscription: 1`
+4. **Email notifications sent** for subscription events
+5. **Guest can manage subscription** using email-based access
+
+### Guest Subscription Fields
+
+When creating a guest subscription, the following fields are automatically populated:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `is_guest_subscription` | number | Set to `1` for guest subscriptions |
+| `guest_data` | string | JSON string with guest information |
+| `guest_email` | string | Extracted guest email for indexing |
+| `user_id` | string | Set to `null` for guest subscriptions |
+
+### Guest Subscription Example
+
+```bash
+curl -X POST "https://api.example.com/bridge-payment/subscriptions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "cust_guest_789012",
+    "product_id": "prod_basic_monthly",
+    "payment_method_id": "pm_guest_card_5678",
+    "provider_id": "stripe",
+    "trial_days": 14,
+    "concept": "Basic Monthly Plan",
+    "description": "Basic subscription with essential features",
+    "reference_code": "sub_basic_monthly_guest",
+    "category": "subscription",
+    "tags": "basic,monthly,trial,guest",
+    "guest_data": {
+      "email": "guest@example.com",
+      "name": "John Doe",
+      "phone": "+1234567890"
+    },
+    "metadata": {
+      "plan": "basic",
+      "source": "landing_page",
+      "guest_checkout": true
+    }
+  }'
+```
+
+### Guest Subscription Response
+
+```json
+{
+  "id": "sub_guest_1234567890",
+  "customer_id": "cust_guest_789012",
+  "product_id": "prod_basic_monthly",
+  "payment_method_id": "pm_guest_card_5678",
+  "provider_id": "stripe",
+  "provider_subscription_id": "sub_stripe_guest_xyz789",
+  "status": "trialing",
+  "current_period_start": "2025-01-15T10:30:00Z",
+  "current_period_end": "2025-02-15T10:30:00Z",
+  "cancel_at_period_end": false,
+  "trial_end": "2025-01-29T10:30:00Z",
+  "price_cents": 999,
+  "currency": "USD",
+  "billing_interval": "monthly",
+  "concept": "Basic Monthly Plan",
+  "description": "Basic subscription with essential features",
+  "reference_code": "sub_basic_monthly_guest",
+  "category": "subscription",
+  "tags": "basic,monthly,trial,guest",
+  "is_guest_subscription": 1,
+  "guest_email": "guest@example.com",
+  "created_at": "2025-01-15T10:30:00Z"
+}
+```
+
+### Guest Email Notifications
+
+Guest subscriptions automatically trigger email notifications for:
+
+- **Subscription Created**: Welcome email with subscription details
+- **Payment Success**: Confirmation of successful recurring payments
+- **Payment Failed**: Notification with retry instructions
+- **Subscription Cancelled**: Cancellation confirmation with access details
+- **Trial Ending**: Reminder before trial expires
+
+All emails are sent in the customer's preferred language (Spanish/English) based on the `GLOBAL_LANG` environment variable.
+
+### Managing Guest Subscriptions
+
+#### Get Guest Subscriptions by Email
+
+```bash
+curl -X GET "https://api.example.com/bridge-payment/subscriptions/guest/guest@example.com" \
+  -H "Content-Type: application/json"
+```
+
+#### Cancel Guest Subscription
+
+```bash
+curl -X POST "https://api.example.com/bridge-payment/subscriptions/sub_guest_1234567890/cancel" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cancel_at_period_end": true,
+    "reason": "Customer requested cancellation"
+  }'
+```
+
+#### Reactivate Guest Subscription
+
+```bash
+curl -X POST "https://api.example.com/bridge-payment/subscriptions/sub_guest_1234567890/reactivate" \
+  -H "Content-Type: application/json"
+```
+
+### Guest to User Conversion
+
+Guests can later create accounts and convert their guest subscriptions to user subscriptions using the guest conversion endpoint:
+
+```bash
+curl -X POST "https://api.example.com/bridge-payment/guest-conversion" \
+  -H "Authorization: Bearer new_user_token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guest_email": "guest@example.com"
+  }'
+```
+
+This will:
+1. Transfer all guest subscriptions to the new user account
+2. Update `is_guest_subscription` to `0`
+3. Set `user_id` to the new user's ID
+4. Preserve all subscription history and settings
 
 ---
 

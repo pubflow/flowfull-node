@@ -3,8 +3,16 @@
   "payment_failed": "❌ Payment Failed - {{transaction_id}}",
   "payment_refunded": "🔄 Refund Processed - {{transaction_id}}",
   "payment_disputed": "⚠️ Payment Disputed - {{transaction_id}}",
-  "subscription_created": "📅 Subscription Created - {{subscription_id}}",
-  "subscription_cancelled": "❌ Subscription Cancelled - {{subscription_id}}",
+  "subscription_created": "🎉 Subscription Activated! - {{client_name}}",
+  "subscription_success": "✅ Subscription Payment Successful - {{client_name}}",
+  "subscription_failed": "⚠️ Subscription Payment Issue - {{client_name}}",
+  "subscription_cancelled": "📋 Subscription Cancelled - {{client_name}}",
+  "subscription_renewed": "🔄 Subscription Renewed - {{client_name}}",
+  "subscription_trial_ending": "⏰ Your trial period ends soon - {{client_name}}",
+  "subscription_payment_retry": "🔄 Retrying subscription payment - {{client_name}}",
+  "subscription_refunded": "💰 Subscription Refund Processed - {{client_name}}",
+  "subscription_updated": "📝 Subscription Updated - {{client_name}}",
+  "subscription_reactivated": "🎉 Subscription Reactivated - {{client_name}}",
   "invoice_created": "📄 New Invoice - {{invoice_id}}",
   "invoice_paid": "✅ Invoice Paid - {{invoice_id}}"
 }

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Subscripción Activada! - {{client_name}}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo-header {
+            background-color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .organization-logo {
+            max-width: 150px;
+            max-height: 80px;
+            height: auto;
+            width: auto;
+        }
+
+        .action-buttons {
+            text-align: center;
+            margin: 30px 0;
+            padding: 20px;
+            background-color: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .action-buttons p {
+            margin-bottom: 20px;
+            color: #4a5568;
+            font-size: 16px;
+        }
+
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+            transition: all 0.3s ease;
+            min-width: 140px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #4fd1c7 0%, #38b2ac 100%);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #38b2ac 0%, #319795 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(79, 209, 199, 0.3);
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 0;
+                box-shadow: none;
+            }
+
+            .button-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .btn {
+                min-width: auto;
+                width: 100%;
+                margin-bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Header (opcional) -->
+        {{logo_header}}
+
+        <div style="background: linear-gradient(135deg, #28a745, #20c997); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 28px; font-weight: bold;">🎉 ¡Subscripción Activada!</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">{{client_name}}</p>
+        </div>
+        
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #333; margin-bottom: 20px; font-size: 24px;">¡Bienvenido a {{subscription_concept}}!</h2>
+            
+            <p style="color: #666; line-height: 1.6; margin-bottom: 25px; font-size: 16px;">
+                ¡Excelente! Tu subscripción ha sido activada exitosamente. Ya puedes disfrutar de todos los beneficios incluidos en tu plan.
+            </p>
+
+            <!-- Detalles de la Subscripción -->
+            <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #28a745;">
+                <h3 style="color: #333; margin: 0 0 15px 0; font-size: 18px;">📋 Detalles de tu Subscripción</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Plan:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_concept}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Descripción:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_description}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Precio:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: bold;">{{subscription_amount}} {{subscription_currency}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Frecuencia:</td>
+                        <td style="padding: 8px 0; color: #333;">{{subscription_interval}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Próximo Pago:</td>
+                        <td style="padding: 8px 0; color: #333;">{{next_billing_date}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; font-weight: bold;">Estado:</td>
+                        <td style="padding: 8px 0; color: #28a745; font-weight: bold;">✅ Activa</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Botón de Acción -->
+            <div style="text-align: center; margin: 35px 0;">
+                <a href="{{app_url}}/dashboard/subscriptions" style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; font-size: 16px; box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);">
+                    📊 Ver Mi Dashboard
+                </a>
+            </div>
+
+            <!-- Información Importante -->
+            <div style="background-color: #e7f3ff; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #007bff;">
+                <h4 style="color: #0056b3; margin: 0 0 10px 0; font-size: 16px;">💡 Información Importante</h4>
+                <ul style="color: #0056b3; margin: 0; padding-left: 20px; line-height: 1.6;">
+                    <li>Tu subscripción se renovará automáticamente cada {{subscription_interval}}</li>
+                    <li>Puedes cancelar en cualquier momento desde tu dashboard</li>
+                    <li>Recibirás un recordatorio antes de cada renovación</li>
+                    <li>El soporte está disponible 24/7 para ayudarte</li>
+                </ul>
+            </div>
+
+            <!-- Soporte -->
+            <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                <h4 style="color: #856404; margin: 0 0 10px 0; font-size: 16px;">🤝 ¿Necesitas Ayuda?</h4>
+                <p style="color: #856404; margin: 0; line-height: 1.6;">
+                    Si tienes alguna pregunta sobre tu subscripción o necesitas asistencia, no dudes en contactarnos. 
+                    Estamos aquí para ayudarte a aprovechar al máximo tu plan.
+                </p>
+            </div>
+
+            <!-- Gestión de Subscripción -->
+            <div class="action-buttons">
+                <p>Gestiona tu subscripción:</p>
+                <div class="button-group">
+                    <a href="{{app_url}}/dashboard" class="btn btn-primary">
+                        📊 Mi Panel de Control
+                    </a>
+                    <a href="{{app_url}}/account/settings" class="btn btn-secondary">
+                        ⚙️ Configuración
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #2d3748; color: #a0aec0; padding: 25px 30px; text-align: center; font-size: 12px;">
+            <div style="margin-bottom: 15px;">
+                <a href="{{privacy_url}}" style="color: #81e6d9; text-decoration: none; margin: 0 10px;">Política de Privacidad</a>
+                <a href="{{terms_url}}" style="color: #81e6d9; text-decoration: none; margin: 0 10px;">Términos de Servicio</a>
+                <a href="{{contact_url}}" style="color: #81e6d9; text-decoration: none; margin: 0 10px;">Contacto</a>
+            </div>
+            <p style="margin: 0 0 10px 0;">© {{current_year}} {{client_name}}. Todos los derechos reservados.</p>
+            <p style="margin: 0;">Este es un correo automático, por favor no responda a esta dirección.</p>
+        </div>
+    </div>
+</body>
+</html>
