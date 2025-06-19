@@ -622,7 +622,7 @@ const { error, paymentIntent } = await stripe.confirmPayment({
 });
 
 if (!error && paymentIntent.status === 'succeeded') {
-  // Sync with backend to trigger email and save payment method
+  // Sync with backend to trigger email, save payment method, and update guest metadata
   const syncResponse = await fetch(`/bridge-payment/payments/intents/${paymentIntentId}/sync`, {
     method: 'POST',
     headers: {
@@ -637,8 +637,37 @@ if (!error && paymentIntent.status === 'succeeded') {
 
   const syncResult = await syncResponse.json();
   console.log('Payment synced:', syncResult);
+
+  // For guest payments, metadata is automatically updated in Stripe
+  if (isGuestPayment) {
+    console.log('Guest metadata synced to Stripe payment intent');
+  }
 }
 ```
+
+### Guest Metadata Enhancement
+
+**NEW**: The sync endpoint now automatically updates Stripe payment intent metadata with guest information for better tracking and analytics.
+
+#### Guest Metadata Updates
+When syncing guest payments, the following metadata is automatically added to Stripe:
+
+```json
+{
+  "guest_email": "user@example.com",
+  "guest_name": "John Doe",
+  "guest_phone": "+1234567890",
+  "is_guest_payment": "true",
+  "updated_by_sync": "true",
+  "sync_timestamp": "2025-06-18T08:30:00.000Z"
+}
+```
+
+#### Benefits
+- ✅ **Enhanced Analytics**: Guest data visible in Stripe Dashboard
+- ✅ **Better Support**: Customer information available for dispute resolution
+- ✅ **Improved Tracking**: Clear identification of guest vs authenticated payments
+- ✅ **Audit Trail**: Sync timestamps for troubleshooting
 
 ### Email Receipt Behavior
 
@@ -657,6 +686,7 @@ The sync endpoint automatically sends transaction receipt emails when:
 - Email sent to guest email from payment data
 - Customer name from guest data
 - Marked as guest transaction
+- **NEW**: Guest metadata automatically synced to Stripe
 
 ### Payment Method Saving
 
@@ -763,7 +793,7 @@ sequenceDiagram
     participant Email
 
     Frontend->>Backend: POST /payments/intents (create)
-    Backend->>Stripe: Create PaymentIntent
+    Backend->>Stripe: Create PaymentIntent with guest metadata
     Stripe->>Backend: Return client_secret
     Backend->>Frontend: Return payment data
 
@@ -772,6 +802,7 @@ sequenceDiagram
 
     Frontend->>Backend: POST /payments/intents/:id/sync
     Backend->>Stripe: Get current status
+    Backend->>Stripe: Update metadata (guest info)
     Backend->>Backend: Update database
     Backend->>Email: Send receipt email
     Backend->>Backend: Save payment method (if requested)

@@ -190,6 +190,12 @@ export interface SubscriptionTable {
   billing_status: string;
   created_at: string;
   updated_at: string;
+  // Enhanced tracking fields (inspired by payments table)
+  description: string | null; // Human-readable description (e.g., "Premium Monthly Plan", "Basic Annual Subscription")
+  concept: string | null; // Human-readable concept (e.g., "Monthly Subscription", "Annual Plan", "Trial Subscription")
+  reference_code: string | null; // Machine-readable code for analytics (e.g., "subscription_monthly", "plan_premium_annual")
+  category: string | null; // High-level category (e.g., "subscription", "trial", "upgrade", "downgrade")
+  tags: string | null; // Comma-separated tags for flexible categorization (e.g., "promotion,summer,discount,premium")
 }
 
 // Product table interface (imported from products repository)

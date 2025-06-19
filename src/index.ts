@@ -19,7 +19,7 @@ import subscriptionRoutes from '@/routes/subscriptions';
 import guestConversionRoutes from '@/routes/guest-conversion';
 import renewalWebhookRoutes from '@/routes/webhooks/renewals';
 import adminRenewalRoutes from '@/routes/admin/renewals';
-import adminRoutes from './routes/admin.js';
+import adminRoutes from './routes/admin';
 // import testEmailRoutes from '@/routes/test-email';
 
 // Create Hono app

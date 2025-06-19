@@ -143,6 +143,61 @@ export interface RefundResponse {
   provider_data?: any;
 }
 
+// Subscription interfaces
+export interface Subscription {
+  id: string;
+  customer_id: string;
+  status: SubscriptionStatus;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  trial_end?: string;
+  price_cents: number;
+  currency: string;
+  billing_interval: BillingInterval;
+  interval_multiplier: number;
+  payment_method_id?: string;
+  metadata?: Record<string, any>;
+  provider_data?: any;
+}
+
+export interface CreateSubscriptionRequest {
+  customer_id: string;
+  price_cents: number;
+  currency: string;
+  billing_interval: BillingInterval;
+  interval_multiplier?: number;
+  payment_method_id?: string;
+  trial_period_days?: number;
+  metadata?: Record<string, any>;
+  product_id?: string;
+}
+
+export interface UpdateSubscriptionRequest {
+  payment_method_id?: string;
+  metadata?: Record<string, any>;
+  cancel_at_period_end?: boolean;
+  trial_end?: string;
+}
+
+export enum SubscriptionStatus {
+  ACTIVE = 'active',
+  CANCELED = 'canceled',
+  INCOMPLETE = 'incomplete',
+  INCOMPLETE_EXPIRED = 'incomplete_expired',
+  PAST_DUE = 'past_due',
+  TRIALING = 'trialing',
+  UNPAID = 'unpaid',
+  PAUSED = 'paused'
+}
+
+export enum BillingInterval {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  MONTHLY = 'monthly',
+  YEARLY = 'yearly'
+}
+
 export interface PaymentAdapterConfig {
   provider_id: string;
   api_key: string;
@@ -337,5 +392,34 @@ export abstract class PaymentAdapter {
     if (amountCents < minimum) {
       throw new Error(`Minimum amount for ${currency} is ${minimum} cents`);
     }
+  }
+
+  // Subscription methods (optional - only implement if provider supports subscriptions)
+  async createSubscription(request: CreateSubscriptionRequest): Promise<Subscription> {
+    throw new Error(`${this.config.provider_id} does not support subscription creation`);
+  }
+
+  async getSubscription(id: string): Promise<Subscription> {
+    throw new Error(`${this.config.provider_id} does not support subscription retrieval`);
+  }
+
+  async updateSubscription(id: string, updates: UpdateSubscriptionRequest): Promise<Subscription> {
+    throw new Error(`${this.config.provider_id} does not support subscription updates`);
+  }
+
+  async cancelSubscription(id: string, options?: { at_period_end?: boolean }): Promise<Subscription> {
+    throw new Error(`${this.config.provider_id} does not support subscription cancellation`);
+  }
+
+  async listCustomerSubscriptions(customer_id: string): Promise<Subscription[]> {
+    throw new Error(`${this.config.provider_id} does not support listing customer subscriptions`);
+  }
+
+  async getReceiptUrl(paymentIntentId: string): Promise<string | null> {
+    throw new Error(`${this.config.provider_id} does not support receipt URLs`);
+  }
+
+  async verifyWebhook(payload: string, signature: string): Promise<WebhookEvent> {
+    throw new Error(`${this.config.provider_id} does not support webhook verification`);
   }
 }

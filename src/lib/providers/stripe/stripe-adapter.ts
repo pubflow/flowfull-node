@@ -15,7 +15,12 @@ import {
   WebhookEvent,
   PaymentIntentStatus,
   PaymentMethodType,
-  BillingDetails
+  BillingDetails,
+  Subscription,
+  CreateSubscriptionRequest,
+  UpdateSubscriptionRequest,
+  SubscriptionStatus,
+  BillingInterval
 } from '../base/payment-adapter';
 import { Logger } from '@/lib/utils/logger';
 
@@ -60,7 +65,7 @@ export class StripeAdapter extends PaymentAdapter {
         'CLP', // Chile - Peso Chileno
         'COP', // Colombia - Peso Colombiano
         'CRC', // Costa Rica - Colón Costarricense
-        'DOP', // Dominican Republic - Peso Dominicano ✅
+        'DOP', // Dominican Republic - Peso Dominicano
         'GTQ', // Guatemala - Quetzal
         'HNL', // Honduras - Lempira
         'MXN', // Mexico - Peso Mexicano
@@ -648,10 +653,12 @@ export class StripeAdapter extends PaymentAdapter {
   private mapStripeRefund(refund: Stripe.Refund): RefundResponse {
     return {
       id: refund.id,
+      payment_intent_id: refund.payment_intent as string,
       amount_cents: refund.amount,
       currency: refund.currency.toUpperCase(),
       status: refund.status as any,
       reason: refund.reason || undefined,
+      created_at: new Date(refund.created * 1000).toISOString(),
       provider_data: refund
     };
   }
@@ -738,6 +745,250 @@ export class StripeAdapter extends PaymentAdapter {
     }
 
     return mapped;
+  }
+
+  // Subscription methods implementation
+  async createSubscription(request: CreateSubscriptionRequest): Promise<Subscription> {
+    Logger.debug('🔄 Creating Stripe subscription...');
+
+    this.validateCurrency(request.currency);
+    this.validateAmount(request.price_cents, request.currency);
+
+    // Handle product for subscription - support both product-based and custom subscriptions
+    let stripeProductId = request.product_id;
+
+    if (!stripeProductId) {
+      // For custom subscriptions (like donations), create a generic product
+      // This supports the flexible subscription model in your schema
+      try {
+        // Use concept as the primary title for the subscription in Stripe
+        const productName = request.metadata?.concept || request.metadata?.product_name || 'Custom Subscription';
+        const productDescription = request.metadata?.description || request.metadata?.product_description || `Custom subscription: ${productName}`;
+
+        const product = await this.stripe.products.create({
+          name: productName,
+          description: productDescription,
+          metadata: {
+            created_by: 'bridge_payments',
+            type: 'custom_subscription',
+            is_flexible: 'true',
+            bridge_product_id: request.product_id || 'none',
+            ...(request.metadata || {})
+          }
+        });
+        stripeProductId = product.id;
+        Logger.debug('✅ Created custom subscription product:', stripeProductId);
+      } catch (productError) {
+        Logger.error('❌ Failed to create custom product:', productError instanceof Error ? productError.message : 'Unknown error');
+        throw new Error('Failed to create subscription product');
+      }
+    } else {
+      // For product-based subscriptions, check if Stripe product exists or create it
+      try {
+        // Try to retrieve existing Stripe product
+        await this.stripe.products.retrieve(stripeProductId);
+        Logger.debug('✅ Using existing Stripe product:', stripeProductId);
+      } catch (retrieveError) {
+        // Product doesn't exist in Stripe, create it
+        Logger.debug('🔄 Stripe product not found, creating from bridge product data...');
+
+        const productName = request.metadata?.product_name || `Product ${stripeProductId}`;
+        const productDescription = request.metadata?.product_description || 'Product-based subscription';
+
+        const product = await this.stripe.products.create({
+          id: stripeProductId, // Use the same ID as in your database
+          name: productName,
+          description: productDescription,
+          metadata: {
+            created_by: 'bridge_payments',
+            type: 'product_subscription',
+            bridge_product_id: stripeProductId,
+            ...(request.metadata || {})
+          }
+        });
+        Logger.debug('✅ Created Stripe product from bridge data:', product.id);
+      }
+    }
+
+    const params: Stripe.SubscriptionCreateParams = {
+      customer: request.customer_id,
+      // Use concept as the subscription description/title in Stripe
+      description: request.metadata?.concept || request.metadata?.description || 'Custom Subscription',
+      items: [{
+        price_data: {
+          currency: request.currency.toLowerCase(),
+          product: stripeProductId,
+          unit_amount: request.price_cents,
+          recurring: {
+            interval: this.mapBillingIntervalToStripe(request.billing_interval),
+            interval_count: request.interval_multiplier || 1
+          }
+        }
+      }],
+      metadata: {
+        ...(request.metadata || {}),
+        // Add concept as subscription title/name for easy identification
+        subscription_title: request.metadata?.concept || 'Custom Subscription',
+        subscription_concept: request.metadata?.concept || '',
+        subscription_description: request.metadata?.description || '',
+        subscription_category: request.metadata?.category || 'subscription',
+        subscription_reference_code: request.metadata?.reference_code || ''
+      }
+    };
+
+    if (request.payment_method_id) {
+      params.default_payment_method = request.payment_method_id;
+    }
+
+    if (request.trial_period_days) {
+      params.trial_period_days = request.trial_period_days;
+    }
+
+    try {
+      const subscription = await this.stripe.subscriptions.create(params);
+      Logger.success('✅ Stripe subscription created successfully');
+      return this.mapStripeSubscription(subscription);
+    } catch (error) {
+      Logger.error('❌ Failed to create Stripe subscription:', error instanceof Error ? error.message : 'Unknown error');
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async getSubscription(id: string): Promise<Subscription> {
+    try {
+      const subscription = await this.stripe.subscriptions.retrieve(id);
+      return this.mapStripeSubscription(subscription);
+    } catch (error) {
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async updateSubscription(id: string, updates: UpdateSubscriptionRequest): Promise<Subscription> {
+    Logger.debug('🔄 Updating Stripe subscription...');
+
+    const params: Stripe.SubscriptionUpdateParams = {};
+
+    if (updates.payment_method_id !== undefined) {
+      params.default_payment_method = updates.payment_method_id;
+    }
+
+    if (updates.metadata !== undefined) {
+      params.metadata = updates.metadata;
+    }
+
+    if (updates.cancel_at_period_end !== undefined) {
+      params.cancel_at_period_end = updates.cancel_at_period_end;
+    }
+
+    if (updates.trial_end !== undefined) {
+      params.trial_end = updates.trial_end === null ? 'now' : Math.floor(new Date(updates.trial_end).getTime() / 1000);
+    }
+
+    try {
+      const subscription = await this.stripe.subscriptions.update(id, params);
+      Logger.success('✅ Stripe subscription updated successfully');
+      return this.mapStripeSubscription(subscription);
+    } catch (error) {
+      Logger.error('❌ Failed to update Stripe subscription:', error instanceof Error ? error.message : 'Unknown error');
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async cancelSubscription(id: string, options?: { at_period_end?: boolean }): Promise<Subscription> {
+    Logger.debug('🔄 Canceling Stripe subscription...');
+
+    try {
+      let subscription: Stripe.Subscription;
+
+      if (options?.at_period_end) {
+        // Cancel at period end
+        subscription = await this.stripe.subscriptions.update(id, {
+          cancel_at_period_end: true
+        });
+        Logger.success('✅ Stripe subscription scheduled for cancellation at period end');
+      } else {
+        // Cancel immediately
+        subscription = await this.stripe.subscriptions.cancel(id);
+        Logger.success('✅ Stripe subscription canceled immediately');
+      }
+
+      return this.mapStripeSubscription(subscription);
+    } catch (error) {
+      Logger.error('❌ Failed to cancel Stripe subscription:', error instanceof Error ? error.message : 'Unknown error');
+      throw this.handleStripeError(error);
+    }
+  }
+
+  async listCustomerSubscriptions(customer_id: string): Promise<Subscription[]> {
+    try {
+      const subscriptions = await this.stripe.subscriptions.list({
+        customer: customer_id,
+        limit: 100
+      });
+      return subscriptions.data.map(sub => this.mapStripeSubscription(sub));
+    } catch (error) {
+      throw this.handleStripeError(error);
+    }
+  }
+
+  // Mapping functions for subscriptions
+  private mapStripeSubscription(stripeSubscription: any): Subscription {
+    const item = stripeSubscription.items?.data?.[0];
+    const price = item?.price;
+
+    return {
+      id: stripeSubscription.id,
+      customer_id: stripeSubscription.customer as string,
+      status: this.mapStripeSubscriptionStatus(stripeSubscription.status),
+      current_period_start: new Date((stripeSubscription.current_period_start || 0) * 1000).toISOString(),
+      current_period_end: new Date((stripeSubscription.current_period_end || 0) * 1000).toISOString(),
+      cancel_at_period_end: stripeSubscription.cancel_at_period_end || false,
+      trial_end: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000).toISOString() : undefined,
+      price_cents: price?.unit_amount || 0,
+      currency: (price?.currency || 'USD').toUpperCase(),
+      billing_interval: this.mapStripeBillingInterval(price?.recurring?.interval || 'month'),
+      interval_multiplier: price?.recurring?.interval_count || 1,
+      payment_method_id: stripeSubscription.default_payment_method as string || undefined,
+      metadata: stripeSubscription.metadata || {},
+      provider_data: stripeSubscription
+    };
+  }
+
+  private mapStripeSubscriptionStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
+    const statusMap: Record<Stripe.Subscription.Status, SubscriptionStatus> = {
+      'active': SubscriptionStatus.ACTIVE,
+      'canceled': SubscriptionStatus.CANCELED,
+      'incomplete': SubscriptionStatus.INCOMPLETE,
+      'incomplete_expired': SubscriptionStatus.INCOMPLETE_EXPIRED,
+      'past_due': SubscriptionStatus.PAST_DUE,
+      'trialing': SubscriptionStatus.TRIALING,
+      'unpaid': SubscriptionStatus.UNPAID,
+      'paused': SubscriptionStatus.PAUSED
+    };
+
+    return statusMap[status] || SubscriptionStatus.ACTIVE;
+  }
+
+  private mapBillingIntervalToStripe(interval: BillingInterval): Stripe.Price.Recurring.Interval {
+    const intervalMap: Record<BillingInterval, Stripe.Price.Recurring.Interval> = {
+      [BillingInterval.DAILY]: 'day',
+      [BillingInterval.WEEKLY]: 'week',
+      [BillingInterval.MONTHLY]: 'month',
+      [BillingInterval.YEARLY]: 'year'
+    };
+
+    return intervalMap[interval] || 'month';
+  }
+
+  private mapStripeBillingInterval(interval: string): BillingInterval {
+    const intervalMap: Record<string, BillingInterval> = {
+      'day': BillingInterval.DAILY,
+      'week': BillingInterval.WEEKLY,
+      'month': BillingInterval.MONTHLY,
+      'year': BillingInterval.YEARLY
+    };
+
+    return intervalMap[interval] || BillingInterval.MONTHLY;
   }
 
   private handleStripeError(error: any): Error {

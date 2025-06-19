@@ -7,11 +7,17 @@ import {
   optionalAuthMiddleware,
   getUserContext
 } from '@/lib/auth/middleware';
-// import { getPaymentAdapter } from '@/lib/providers/factory'; // TODO: Uncomment when subscription methods are implemented
+import { PaymentProviderFactory } from '@/lib/providers/factory';
+
+// Helper function to get payment adapter
+async function getPaymentAdapter(providerId: string) {
+  return PaymentProviderFactory.getAdapter(providerId);
+}
 import {
   getSubscriptionRepository,
   getCustomerRepository,
-  getProductRepository
+  getProductRepository,
+  getPaymentMethodRepository
 } from '@/lib/database/repositories';
 import { SubscriptionStatus } from '@/lib/database/types';
 
@@ -42,7 +48,14 @@ const createSubscriptionSchema = z.object({
   guest_data: z.object({
     email: z.string().email(),
     name: z.string().min(1)
-  }).optional()
+  }).optional(),
+
+  // Enhanced tracking fields (inspired by payments table)
+  description: z.string().optional(), // Human-readable description (e.g., "Premium Monthly Plan", "Basic Annual Subscription")
+  concept: z.string().optional(), // Human-readable concept (e.g., "Monthly Subscription", "Annual Plan", "Trial Subscription")
+  reference_code: z.string().optional(), // Machine-readable code for analytics (e.g., "subscription_monthly", "plan_premium_annual")
+  category: z.string().optional(), // High-level category (e.g., "subscription", "trial", "upgrade", "downgrade")
+  tags: z.string().optional() // Comma-separated tags for flexible categorization (e.g., "promotion,summer,discount,premium")
 });
 
 const updateSubscriptionSchema = z.object({
@@ -74,10 +87,48 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
     const customerRepo = await getCustomerRepository();
     const productRepo = await getProductRepository();
 
-    // Verify customer exists and user has access
-    const customer = await customerRepo.findById(validatedData.customer_id);
+    // Find customer - support both internal ID and provider customer ID
+    let customer: any = null;
+
+    // First try to find by internal ID (provider_customers.id)
+    try {
+      customer = await customerRepo.findById(validatedData.customer_id);
+    } catch (error) {
+      // If not found, try to find by provider_customer_id (Stripe ID)
+      console.log('🔍 Customer not found by internal ID, trying provider_customer_id...');
+    }
+
+    // If not found by internal ID, try by provider_customer_id
     if (!customer) {
-      throw new HTTPException(404, { message: 'Customer not found' });
+      try {
+        customer = await customerRepo.findByProviderCustomerId(validatedData.provider_id, validatedData.customer_id);
+      } catch (error) {
+        console.log('🔍 Customer not found by provider_customer_id either');
+      }
+    }
+
+    // If still not found, check if this is a user_id and create/find customer
+    if (!customer && userContext.isAuthenticated) {
+      console.log('🔍 Trying to find customer by user_id...');
+      try {
+        // Try to find existing customer for this user and provider
+        const customers = await customerRepo.findByUserId(userContext.userId!);
+        customer = customers.find(c => c.provider_id === validatedData.provider_id);
+
+        if (customer) {
+          console.log('✅ Found existing customer for user:', customer.id);
+          // Update the customer_id in the request to use the correct internal ID
+          validatedData.customer_id = customer.id;
+        }
+      } catch (error) {
+        console.log('⚠️ Could not find customer by user_id');
+      }
+    }
+
+    if (!customer) {
+      throw new HTTPException(404, {
+        message: 'Customer not found. Please create a customer first or use the correct customer ID.'
+      });
     }
 
     // Verify user has access to this customer
@@ -181,7 +232,13 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
           ...validatedData.metadata,
           product_name: product.name,
           is_product_subscription: true
-        })
+        }),
+        // Enhanced tracking fields
+        description: validatedData.description || `${product.name} - ${billingInterval} subscription`,
+        concept: validatedData.concept || `${billingInterval.charAt(0).toUpperCase() + billingInterval.slice(1)} Subscription`,
+        reference_code: validatedData.reference_code || `subscription_${billingInterval}_${product.id}`,
+        category: validatedData.category || 'subscription',
+        tags: validatedData.tags
       };
 
       // TODO: Uncomment when provider integration is implemented
@@ -267,7 +324,13 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         metadata: JSON.stringify({
           ...validatedData.metadata,
           is_custom_subscription: true
-        })
+        }),
+        // Enhanced tracking fields
+        description: validatedData.description || `Custom ${validatedData.billing_interval} subscription - $${(validatedData.price_cents / 100).toFixed(2)}`,
+        concept: validatedData.concept || `Custom ${validatedData.billing_interval.charAt(0).toUpperCase() + validatedData.billing_interval.slice(1)} Subscription`,
+        reference_code: validatedData.reference_code || `subscription_custom_${validatedData.billing_interval}`,
+        category: validatedData.category || 'subscription',
+        tags: validatedData.tags
       };
 
       // TODO: Uncomment when provider integration is implemented
@@ -285,14 +348,103 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       // };
     }
 
-    // Create subscription in payment provider (TODO: Implement subscription methods in PaymentAdapter)
+    // Create subscription in payment provider
     console.log('🔗 Creating subscription in payment provider...');
-    // const adapter = await getPaymentAdapter(validatedData.provider_id);
-    // const providerSubscription = await adapter.createSubscription(providerSubscriptionData);
-    console.log('⚠️ Provider subscription creation not implemented yet - creating local subscription only');
 
-    // Update subscription with provider ID (using placeholder for now)
-    subscriptionData.provider_subscription_id = `sub_local_${subscriptionData.id}`;
+    try {
+      const adapter = await getPaymentAdapter(validatedData.provider_id);
+
+      // Check if provider supports subscriptions
+      if (!adapter.getCapabilities().supports_subscriptions) {
+        console.log('⚠️ Provider does not support subscriptions - creating local subscription only');
+        subscriptionData.provider_subscription_id = `sub_local_${subscriptionData.id}`;
+      } else {
+        // Get payment method to retrieve provider_payment_method_id
+        const paymentMethodRepo = await getPaymentMethodRepository();
+        const paymentMethod = await paymentMethodRepo.findById(validatedData.payment_method_id);
+
+        if (!paymentMethod) {
+          throw new HTTPException(404, { message: 'Payment method not found' });
+        }
+
+        if (!paymentMethod.provider_payment_method_id) {
+          throw new HTTPException(400, { message: 'Payment method does not have a provider ID' });
+        }
+
+        console.log('🔍 Using payment method:', {
+          internal_id: paymentMethod.id,
+          provider_id: paymentMethod.provider_payment_method_id
+        });
+
+        // Get product info if this is a product-based subscription
+        let productInfo = {};
+        if (validatedData.product_id) {
+          try {
+            const product = await productRepo.findById(validatedData.product_id);
+            if (product) {
+              productInfo = {
+                product_name: product.name,
+                product_description: product.description,
+                is_product_subscription: true
+              };
+            }
+          } catch (error) {
+            console.log('⚠️ Could not fetch product info for metadata');
+          }
+        }
+
+        // Create subscription with provider
+        const providerSubscriptionRequest = {
+          customer_id: customer.provider_customer_id!,
+          price_cents: subscriptionData.price_cents,
+          currency: subscriptionData.currency,
+          billing_interval: subscriptionData.billing_interval as any,
+          interval_multiplier: subscriptionData.interval_multiplier,
+          payment_method_id: paymentMethod.provider_payment_method_id, // Use provider ID, not internal ID
+          trial_period_days: subscriptionData.trial_end ?
+            Math.ceil((new Date(subscriptionData.trial_end).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) :
+            undefined,
+          product_id: subscriptionData.product_id, // Pass product_id to adapter
+          metadata: {
+            subscription_id: subscriptionData.id,
+            product_id: subscriptionData.product_id,
+            // Enhanced tracking fields for provider (especially Stripe)
+            concept: subscriptionData.concept,
+            description: subscriptionData.description,
+            reference_code: subscriptionData.reference_code,
+            category: subscriptionData.category,
+            tags: subscriptionData.tags,
+            // Include product info if available
+            ...productInfo,
+            // If not product-based, mark as custom
+            ...(validatedData.product_id ? {} : { is_custom_subscription: true }),
+            ...(subscriptionData.metadata ? JSON.parse(subscriptionData.metadata) : {})
+          }
+        };
+
+        console.log('📤 Creating provider subscription with data:', {
+          customer_id: providerSubscriptionRequest.customer_id,
+          price_cents: providerSubscriptionRequest.price_cents,
+          currency: providerSubscriptionRequest.currency,
+          billing_interval: providerSubscriptionRequest.billing_interval,
+          has_trial: !!providerSubscriptionRequest.trial_period_days
+        });
+
+        const providerSubscription = await adapter.createSubscription(providerSubscriptionRequest);
+        subscriptionData.provider_subscription_id = providerSubscription.id;
+
+        // Update status and dates from provider response
+        subscriptionData.status = providerSubscription.status as any;
+        subscriptionData.current_period_start = providerSubscription.current_period_start;
+        subscriptionData.current_period_end = providerSubscription.current_period_end;
+
+        console.log('✅ Provider subscription created:', providerSubscription.id);
+      }
+    } catch (providerError) {
+      console.error('❌ Provider subscription creation failed:', providerError);
+      console.log('⚠️ Falling back to local subscription creation');
+      subscriptionData.provider_subscription_id = `sub_local_${subscriptionData.id}`;
+    }
 
     // Save to database
     console.log('💾 Saving subscription to database...');
@@ -315,6 +467,12 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       price_cents: subscription.price_cents,
       currency: subscription.currency,
       metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
+      // Enhanced tracking fields
+      description: subscription.description,
+      concept: subscription.concept,
+      reference_code: subscription.reference_code,
+      category: subscription.category,
+      tags: subscription.tags,
       created_at: subscription.created_at
     }, 201);
 
@@ -339,7 +497,7 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
   }
 });
 
-// Get subscription by ID
+// Get subscription by internal ID (primary method - more secure)
 subscriptions.get('/:id', optionalAuthMiddleware, async (c) => {
   try {
     const subscriptionId = c.req.param('id');
@@ -370,24 +528,37 @@ subscriptions.get('/:id', optionalAuthMiddleware, async (c) => {
     }
 
     return c.json({
-      id: subscription.id,
-      user_id: subscription.user_id,
-      organization_id: subscription.organization_id,
-      customer_id: subscription.customer_id,
-      product_id: subscription.product_id,
-      payment_method_id: subscription.payment_method_id,
-      provider_id: subscription.provider_id,
-      provider_subscription_id: subscription.provider_subscription_id,
-      status: subscription.status,
-      current_period_start: subscription.current_period_start,
-      current_period_end: subscription.current_period_end,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-      trial_end: subscription.trial_end,
-      price_cents: subscription.price_cents,
-      currency: subscription.currency,
-      metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
-      created_at: subscription.created_at,
-      updated_at: subscription.updated_at
+      success: true,
+      subscription: {
+        id: subscription.id,
+        user_id: subscription.user_id,
+        organization_id: subscription.organization_id,
+        customer_id: subscription.customer_id,
+        product_id: subscription.product_id,
+        payment_method_id: subscription.payment_method_id,
+        provider_id: subscription.provider_id,
+        provider_subscription_id: subscription.provider_subscription_id,
+        status: subscription.status,
+        current_period_start: subscription.current_period_start,
+        current_period_end: subscription.current_period_end,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        trial_end: subscription.trial_end,
+        price_cents: subscription.price_cents,
+        currency: subscription.currency,
+        billing_interval: subscription.billing_interval,
+        interval_multiplier: subscription.interval_multiplier,
+        next_billing_date: subscription.next_billing_date,
+        billing_status: subscription.billing_status,
+        metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
+        // Enhanced tracking fields
+        description: subscription.description,
+        concept: subscription.concept,
+        reference_code: subscription.reference_code,
+        category: subscription.category,
+        tags: subscription.tags,
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at
+      }
     });
 
   } catch (error) {
@@ -505,12 +676,29 @@ subscriptions.post('/:id/cancel', optionalAuthMiddleware, async (c) => {
       cancel_at_period_end: validatedData.cancel_at_period_end
     });
 
-    // Cancel in payment provider (TODO: Implement subscription methods in PaymentAdapter)
-    // const adapter = await getPaymentAdapter(subscription.provider_id);
-    // await adapter.cancelSubscription(subscription.provider_subscription_id!, {
-    //   cancel_at_period_end: validatedData.cancel_at_period_end
-    // });
-    console.log('⚠️ Provider cancellation not implemented yet - updating local database only');
+    // Cancel in payment provider
+    try {
+      const adapter = await getPaymentAdapter(subscription.provider_id);
+
+      // Check if provider supports subscriptions and this is not a local subscription
+      if (adapter.getCapabilities().supports_subscriptions &&
+          subscription.provider_subscription_id &&
+          !subscription.provider_subscription_id.startsWith('sub_local_')) {
+
+        console.log('🔗 Canceling subscription with provider:', subscription.provider_subscription_id);
+
+        await adapter.cancelSubscription(subscription.provider_subscription_id, {
+          at_period_end: validatedData.cancel_at_period_end
+        });
+
+        console.log('✅ Provider subscription canceled successfully');
+      } else {
+        console.log('⚠️ Local subscription or provider does not support cancellation - updating database only');
+      }
+    } catch (providerError) {
+      console.error('❌ Provider cancellation failed:', providerError);
+      console.log('⚠️ Continuing with local cancellation');
+    }
 
     // Update in database
     let updatedSubscription;
@@ -601,6 +789,162 @@ subscriptions.get('/guest/:email', async (c) => {
       message: 'Failed to get guest subscriptions',
       cause: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
+});
+
+// Get subscription by provider ID (for integration purposes)
+subscriptions.get('/by-provider/:provider_id/:provider_subscription_id', optionalAuthMiddleware, async (c) => {
+  try {
+    const { provider_id, provider_subscription_id } = c.req.param();
+    const userContext = getUserContext(c);
+
+    console.log('🔍 Subscription lookup by provider ID:', {
+      provider_id,
+      provider_subscription_id,
+      user_id: userContext.userId
+    });
+
+    const subscriptionRepo = await getSubscriptionRepository();
+
+    // Find subscription by provider details
+    const subscription = await subscriptionRepo.findByProviderSubscriptionId(provider_subscription_id, provider_id);
+
+    if (!subscription) {
+      throw new HTTPException(404, { message: 'Subscription not found' });
+    }
+
+    // Security check: ensure user has access to this subscription
+    if (userContext.isAuthenticated && !userContext.isGuest) {
+      // For authenticated users, check ownership
+      if (subscription.user_id !== userContext.userId) {
+        throw new HTTPException(403, { message: 'Access denied to this subscription' });
+      }
+    } else {
+      // For guests, this endpoint is not available for security
+      throw new HTTPException(401, { message: 'Authentication required for provider ID lookup' });
+    }
+
+    console.log('✅ Subscription found by provider ID:', {
+      internal_id: subscription.id,
+      provider_subscription_id: subscription.provider_subscription_id,
+      status: subscription.status
+    });
+
+    return c.json({
+      success: true,
+      subscription: {
+        id: subscription.id, // Return internal ID
+        user_id: subscription.user_id,
+        customer_id: subscription.customer_id,
+        provider_id: subscription.provider_id,
+        provider_subscription_id: subscription.provider_subscription_id,
+        status: subscription.status,
+        current_period_start: subscription.current_period_start,
+        current_period_end: subscription.current_period_end,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        trial_end: subscription.trial_end,
+        price_cents: subscription.price_cents,
+        currency: subscription.currency,
+        billing_interval: subscription.billing_interval,
+        interval_multiplier: subscription.interval_multiplier,
+        next_billing_date: subscription.next_billing_date,
+        billing_status: subscription.billing_status,
+        metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Subscription lookup by provider ID failed:', error);
+
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    throw new HTTPException(500, { message: 'Failed to lookup subscription by provider ID' });
+  }
+});
+
+// Get subscription by internal ID and provider verification (double security)
+subscriptions.get('/secure/:id/:provider_subscription_id', optionalAuthMiddleware, async (c) => {
+  try {
+    const { id, provider_subscription_id } = c.req.param();
+    const userContext = getUserContext(c);
+
+    console.log('🔒 Secure subscription lookup:', {
+      internal_id: id,
+      provider_subscription_id,
+      user_id: userContext.userId
+    });
+
+    const subscriptionRepo = await getSubscriptionRepository();
+
+    // Find by internal ID first
+    const subscription = await subscriptionRepo.findById(id);
+
+    if (!subscription) {
+      throw new HTTPException(404, { message: 'Subscription not found' });
+    }
+
+    // Verify provider subscription ID matches (double security)
+    if (subscription.provider_subscription_id !== provider_subscription_id) {
+      console.log('❌ Provider subscription ID mismatch:', {
+        expected: subscription.provider_subscription_id,
+        provided: provider_subscription_id
+      });
+      throw new HTTPException(403, { message: 'Subscription verification failed' });
+    }
+
+    // Security check: ensure user has access
+    if (userContext.isAuthenticated && !userContext.isGuest) {
+      if (subscription.user_id !== userContext.userId) {
+        throw new HTTPException(403, { message: 'Access denied to this subscription' });
+      }
+    } else {
+      throw new HTTPException(401, { message: 'Authentication required for secure lookup' });
+    }
+
+    console.log('✅ Secure subscription verified:', {
+      internal_id: subscription.id,
+      provider_subscription_id: subscription.provider_subscription_id,
+      status: subscription.status
+    });
+
+    return c.json({
+      success: true,
+      verified: true,
+      subscription: {
+        id: subscription.id,
+        user_id: subscription.user_id,
+        customer_id: subscription.customer_id,
+        provider_id: subscription.provider_id,
+        provider_subscription_id: subscription.provider_subscription_id,
+        status: subscription.status,
+        current_period_start: subscription.current_period_start,
+        current_period_end: subscription.current_period_end,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        trial_end: subscription.trial_end,
+        price_cents: subscription.price_cents,
+        currency: subscription.currency,
+        billing_interval: subscription.billing_interval,
+        interval_multiplier: subscription.interval_multiplier,
+        next_billing_date: subscription.next_billing_date,
+        billing_status: subscription.billing_status,
+        metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
+        created_at: subscription.created_at,
+        updated_at: subscription.updated_at
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Secure subscription lookup failed:', error);
+
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    throw new HTTPException(500, { message: 'Failed to perform secure subscription lookup' });
   }
 });
 
