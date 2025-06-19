@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import { Database, PaymentMethodTable, PaymentMethodInsert, PaymentMethodUpdate } from '../types';
+import { getDatabase } from '../connection';
 
 export class PaymentMethodRepository extends BaseRepository<'payment_methods'> {
   constructor(db: Kysely<Database>) {
@@ -290,4 +291,10 @@ export class PaymentMethodRepository extends BaseRepository<'payment_methods'> {
 
     return deletedCount;
   }
+}
+
+// Export convenience function
+export async function getPaymentMethodRepository(): Promise<PaymentMethodRepository> {
+  const db = await getDatabase();
+  return new PaymentMethodRepository(db);
 }

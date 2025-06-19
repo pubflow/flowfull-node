@@ -2,11 +2,11 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
-import { optionalAuth } from '../lib/auth/auth-middleware.js';
-import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter.js';
-import { getPaymentAdapter } from '../lib/providers/factory.js';
-import { getPaymentMethodRepository, getCustomerRepository, getAddressRepository } from '../lib/database/repositories/index.js';
-import { PaymentMethodType } from '../lib/providers/base/payment-adapter.js';
+import { optionalAuth } from '../lib/auth/auth-middleware';
+import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter';
+import { getPaymentAdapter } from '../lib/providers/factory';
+import { getPaymentMethodRepository, getCustomerRepository, getAddressRepository } from '../lib/database/repositories/index';
+import { PaymentMethodType } from '../lib/providers/base/payment-adapter';
 
 const paymentMethods = new Hono();
 
@@ -163,6 +163,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         id: pm.id,
         provider_payment_method_id: pm.provider_payment_method_id,
         payment_type: pm.payment_type,
+        wallet_type: pm.wallet_type,
         card_brand: pm.card_brand,
         last_four: pm.last_four,
         expiry_month: pm.expiry_month,
@@ -204,7 +205,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
 
       try {
         // Try to find guest email associated with this token
-        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const { getPaymentRepository } = await import('../lib/database/repositories/index');
         const paymentRepo = await getPaymentRepository();
         const guestEmail = await paymentRepo.findGuestEmailByToken(token);
 
@@ -230,6 +231,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
             id: pm.id,
             provider_payment_method_id: pm.provider_payment_method_id,
             payment_type: pm.payment_type,
+            wallet_type: pm.wallet_type,
             card_brand: pm.card_brand,
             last_four: pm.last_four,
             expiry_month: pm.expiry_month,
@@ -293,7 +295,8 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
 // Validation schemas
 const createPaymentMethodWithTokenSchema = z.object({
   customer_id: z.string().optional(),
-  type: z.enum(['credit_card', 'bank_account', 'paypal']),
+  type: z.enum(['credit_card', 'bank_account', 'paypal']), // Keep as credit_card for wallet payments
+  wallet_type: z.enum(['apple_pay', 'google_pay', 'samsung_pay']).optional(), // Optional additional info for wallet payments
   provider_id: z.string(),
   payment_method_token: z.string(), // Required for token-based creation
   billing_address_id: z.string().optional(), // Optional: Use existing address
@@ -315,7 +318,8 @@ const createPaymentMethodWithTokenSchema = z.object({
 });
 
 const createPaymentMethodSchema = z.object({
-  type: z.enum(['credit_card', 'debit_card', 'bank_account', 'paypal', 'apple_pay', 'google_pay']),
+  type: z.enum(['credit_card', 'debit_card', 'bank_account', 'paypal']), // Keep as credit_card for wallet payments
+  wallet_type: z.enum(['apple_pay', 'google_pay', 'samsung_pay']).optional(), // Optional additional info for wallet payments
   customer_id: z.string().optional(),
   provider_id: z.string().default('stripe'),
   billing_address_id: z.string().optional(), // Optional: Use existing address
@@ -453,6 +457,14 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       }
     }
 
+    // Auto-detect wallet type from provider data (keep payment_type as credit_card)
+    let detectedWalletType = validatedData.wallet_type || null;
+
+    // Auto-detect wallet payments from Stripe
+    if (validatedData.provider_id === 'stripe' && attachedPaymentMethod.wallet_type) {
+      detectedWalletType = attachedPaymentMethod.wallet_type;
+    }
+
     // Save payment method to database using native-payments schema
     const paymentMethodRepo = await getPaymentMethodRepository();
     const paymentMethod = await paymentMethodRepo.create({
@@ -461,7 +473,8 @@ paymentMethods.post('/', optionalAuth(), async (c) => {
       organization_id: null, // No organization support for now
       provider_id: validatedData.provider_id,
       provider_payment_method_id: validatedData.payment_method_token,
-      payment_type: validatedData.type,
+      payment_type: validatedData.type, // Keep original type (credit_card even for wallet payments)
+      wallet_type: detectedWalletType, // Store wallet type as additional info
       last_four: attachedPaymentMethod.card?.last_four || null,
       expiry_month: attachedPaymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
       expiry_year: attachedPaymentMethod.card?.exp_year?.toString() || null,
@@ -554,6 +567,14 @@ paymentMethods.post('/direct', optionalAuth(), async (c) => {
       }
     }
 
+    // Auto-detect wallet type from provider data (keep payment_type as credit_card)
+    let detectedWalletType = validatedData.wallet_type || null;
+
+    // Auto-detect wallet payments from Stripe
+    if (validatedData.provider_id === 'stripe' && providerPaymentMethod.wallet_type) {
+      detectedWalletType = providerPaymentMethod.wallet_type;
+    }
+
     // Save payment method to database using native-payments schema
     const paymentMethodRepo = await getPaymentMethodRepository();
     const paymentMethod = await paymentMethodRepo.create({
@@ -562,7 +583,8 @@ paymentMethods.post('/direct', optionalAuth(), async (c) => {
       organization_id: null, // No organization support for now
       provider_id: validatedData.provider_id,
       provider_payment_method_id: providerPaymentMethod.id,
-      payment_type: validatedData.type, // Using payment_type instead of type
+      payment_type: validatedData.type, // Keep original type (credit_card even for wallet payments)
+      wallet_type: detectedWalletType, // Store wallet type as additional info
       last_four: providerPaymentMethod.card?.last_four || null,
       expiry_month: providerPaymentMethod.card?.exp_month?.toString().padStart(2, '0') || null,
       expiry_year: providerPaymentMethod.card?.exp_year?.toString() || null,
@@ -721,7 +743,7 @@ paymentMethods.get('/:id', optionalAuth(), async (c) => {
 
       try {
         // Try to find guest email associated with this token
-        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const { getPaymentRepository } = await import('../lib/database/repositories/index');
         const paymentRepo = await getPaymentRepository();
         const guestEmail = await paymentRepo.findGuestEmailByToken(token);
 
@@ -925,7 +947,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
 
       try {
         // Try to find guest email associated with this token
-        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const { getPaymentRepository } = await import('../lib/database/repositories/index');
         const paymentRepo = await getPaymentRepository();
         const guestEmail = await paymentRepo.findGuestEmailByToken(token);
 
@@ -1127,7 +1149,7 @@ paymentMethods.delete('/:id', optionalAuth(), async (c) => {
 
       try {
         // Try to find guest email associated with this token
-        const { getPaymentRepository } = await import('../lib/database/repositories/index.js');
+        const { getPaymentRepository } = await import('../lib/database/repositories/index');
         const paymentRepo = await getPaymentRepository();
         const guestEmail = await paymentRepo.findGuestEmailByToken(token);
 

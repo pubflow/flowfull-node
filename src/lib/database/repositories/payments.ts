@@ -2,6 +2,7 @@ import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import type { Database, PaymentTable, PaymentInsert, PaymentUpdate } from '../types';
 import { PaymentStatus } from '../types';
+import { getDatabase } from '../connection';
 
 export class PaymentRepository extends BaseRepository<'payments'> {
   constructor(db: Kysely<Database>) {
@@ -636,4 +637,10 @@ export class PaymentRepository extends BaseRepository<'payments'> {
       average_amount: Number(result.average_amount || 0)
     }));
   }
+}
+
+// Export convenience function
+export async function getPaymentRepository(): Promise<PaymentRepository> {
+  const db = await getDatabase();
+  return new PaymentRepository(db);
 }

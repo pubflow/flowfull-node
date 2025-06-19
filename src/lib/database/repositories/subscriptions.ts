@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import { Database, SubscriptionTable, SubscriptionInsert, SubscriptionUpdate, SubscriptionStatus } from '../types';
+import { getDatabase } from '../connection';
 
 export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
   constructor(db: Kysely<Database>) {
@@ -333,4 +334,10 @@ export class SubscriptionRepository extends BaseRepository<'subscriptions'> {
       total: countResult?.count || 0
     };
   }
+}
+
+// Export convenience function
+export async function getSubscriptionRepository(): Promise<SubscriptionRepository> {
+  const db = await getDatabase();
+  return new SubscriptionRepository(db);
 }

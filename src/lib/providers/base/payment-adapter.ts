@@ -15,6 +15,7 @@ export interface PaymentIntent {
 export interface PaymentMethod {
   id: string;
   type: PaymentMethodType;
+  wallet_type?: string; // For wallet payments: 'apple_pay', 'google_pay', 'samsung_pay'
   card?: {
     brand: string;
     last_four: string;

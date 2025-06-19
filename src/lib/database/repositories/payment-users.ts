@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import type { Database, PaymentUserTable, PaymentUserInsert, PaymentUserUpdate } from '../types';
+import { getDatabase } from '../connection';
 
 export class PaymentUserRepository extends BaseRepository<'payment_users'> {
   constructor(db: Kysely<Database>) {
@@ -335,4 +336,10 @@ export class PaymentUserRepository extends BaseRepository<'payment_users'> {
 
     return result;
   }
+}
+
+// Export convenience function
+export async function getPaymentUserRepository(): Promise<PaymentUserRepository> {
+  const db = await getDatabase();
+  return new PaymentUserRepository(db);
 }

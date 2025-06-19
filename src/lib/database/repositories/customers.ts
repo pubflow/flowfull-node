@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import { Database } from '../types';
+import { getDatabase } from '../connection';
 
 // Customer types based on native-payments schema
 export interface CustomerTable {
@@ -266,4 +267,10 @@ export class CustomerRepository extends BaseRepository<'provider_customers'> {
 
     return deletedCount;
   }
+}
+
+// Export convenience function
+export async function getCustomerRepository(): Promise<CustomerRepository> {
+  const db = await getDatabase();
+  return new CustomerRepository(db);
 }

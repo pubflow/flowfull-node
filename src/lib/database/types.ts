@@ -48,6 +48,7 @@ export interface PaymentMethodTable {
   provider_id: string;
   provider_payment_method_id: string;
   payment_type: string;
+  wallet_type: string | null; // 'apple_pay', 'google_pay', 'samsung_pay', etc. (only for wallet payment types)
   last_four: string | null;
   expiry_month: string | null;
   expiry_year: string | null;
@@ -315,8 +316,14 @@ export enum PaymentMethodType {
   DEBIT_CARD = 'debit_card',
   BANK_ACCOUNT = 'bank_account',
   PAYPAL = 'paypal',
+  WALLET = 'wallet'
+}
+
+// Wallet types (for when payment_type is 'wallet')
+export enum WalletType {
   APPLE_PAY = 'apple_pay',
-  GOOGLE_PAY = 'google_pay'
+  GOOGLE_PAY = 'google_pay',
+  SAMSUNG_PAY = 'samsung_pay'
 }
 
 // Provider IDs

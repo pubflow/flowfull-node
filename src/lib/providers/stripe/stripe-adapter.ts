@@ -630,7 +630,7 @@ export class StripeAdapter extends PaymentAdapter {
   private mapStripePaymentMethod(pm: Stripe.PaymentMethod): PaymentMethod {
     const paymentMethod: PaymentMethod = {
       id: pm.id,
-      type: this.mapStripePaymentMethodType(pm.type),
+      type: this.mapStripePaymentMethodType(pm.type, pm),
       provider_data: pm
     };
 
@@ -641,6 +641,11 @@ export class StripeAdapter extends PaymentAdapter {
         exp_month: pm.card.exp_month,
         exp_year: pm.card.exp_year
       };
+
+      // Add wallet information if this is a wallet payment
+      if (pm.card.wallet) {
+        paymentMethod.wallet_type = this.mapStripeWalletType(pm.card.wallet.type);
+      }
     }
 
     if (pm.billing_details) {
@@ -695,7 +700,9 @@ export class StripeAdapter extends PaymentAdapter {
     return mappedType;
   }
 
-  private mapStripePaymentMethodType(type: string): PaymentMethodType {
+  private mapStripePaymentMethodType(type: string, pm?: Stripe.PaymentMethod): PaymentMethodType {
+    // Always map card type as CREDIT_CARD, even for wallet payments
+    // Wallet information will be stored separately in wallet_type field
     const typeMap: Record<string, PaymentMethodType> = {
       'card': PaymentMethodType.CREDIT_CARD,
       'us_bank_account': PaymentMethodType.BANK_ACCOUNT,
@@ -703,6 +710,16 @@ export class StripeAdapter extends PaymentAdapter {
     };
 
     return typeMap[type] || PaymentMethodType.CREDIT_CARD;
+  }
+
+  private mapStripeWalletType(walletType: string): string {
+    const walletTypeMap: Record<string, string> = {
+      'apple_pay': 'apple_pay',
+      'google_pay': 'google_pay',
+      'samsung_pay': 'samsung_pay'
+    };
+
+    return walletTypeMap[walletType] || walletType;
   }
 
   private mapBillingDetails(details: BillingDetails): Stripe.PaymentMethodCreateParams.BillingDetails {

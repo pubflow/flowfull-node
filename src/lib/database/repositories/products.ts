@@ -1,6 +1,7 @@
 import { Kysely } from 'kysely';
 import { BaseRepository } from './base';
 import { Database, ProductTable, ProductInsert, ProductUpdate } from '../types';
+import { getDatabase } from '../connection';
 
 export class ProductRepository extends BaseRepository<'products'> {
   constructor(db: Kysely<Database>) {
@@ -149,4 +150,10 @@ export class ProductRepository extends BaseRepository<'products'> {
       total: countResult?.count || 0
     };
   }
+}
+
+// Export convenience function
+export async function getProductRepository(): Promise<ProductRepository> {
+  const db = await getDatabase();
+  return new ProductRepository(db);
 }

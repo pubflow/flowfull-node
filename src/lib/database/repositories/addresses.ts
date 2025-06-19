@@ -1,5 +1,6 @@
 import { Kysely } from 'kysely';
 import { Database } from '../types';
+import { getDatabase } from '../connection';
 
 export interface Address {
   id: string;
@@ -247,4 +248,10 @@ export class AddressRepository {
       updated_at: row.updated_at
     };
   }
+}
+
+// Export convenience function
+export async function getAddressRepository(): Promise<AddressRepository> {
+  const db = await getDatabase();
+  return new AddressRepository(db);
 }
