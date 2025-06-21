@@ -8,6 +8,7 @@ import {
   getUserContext
 } from '@/lib/auth/middleware';
 import { PaymentProviderFactory } from '@/lib/providers/factory';
+import { processIntelligentPricing, type PricingInput } from '@/lib/utils/pricing-calculator';
 
 // Helper function to get payment adapter
 async function getPaymentAdapter(providerId: string) {
@@ -33,15 +34,21 @@ const createSubscriptionSchema = z.object({
   // Organization support
   organization_id: z.string().optional(), // Optional organization ID
 
-  // Custom subscription fields (used when product_id is null)
-  price_cents: z.number().int().positive().optional(),
+  // INTELLIGENT PRICING SYSTEM (used when product_id is null)
+  subtotal_cents: z.number().int().min(0).optional(),
+  tax_cents: z.number().int().min(0).optional(),
+  discount_cents: z.number().int().min(0).optional(),
+  total_cents: z.number().int().min(0).optional(),
   currency: z.string().length(3).optional(),
   billing_interval: z.enum(['monthly', 'yearly', 'weekly', 'daily']).default('monthly'),
   interval_multiplier: z.number().int().min(1).max(12).default(1),
   trial_days: z.number().int().min(0).optional(),
 
   // Optional overrides (even for product-based subscriptions)
-  custom_price_cents: z.number().int().positive().optional(),
+  custom_subtotal_cents: z.number().int().min(0).optional(),
+  custom_tax_cents: z.number().int().min(0).optional(),
+  custom_discount_cents: z.number().int().min(0).optional(),
+  custom_total_cents: z.number().int().min(0).optional(),
   custom_trial_days: z.number().int().min(0).optional(),
 
   metadata: z.record(z.any()).optional(),
@@ -165,8 +172,43 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         throw new HTTPException(400, { message: 'Product is not a subscription product' });
       }
 
-      // Use product data with optional overrides
-      const finalPriceCents = validatedData.custom_price_cents || product.price_cents;
+      // 🧠 INTELLIGENT PRICING for product-based subscription with overrides
+      console.log('🧠 Processing product-based subscription pricing...');
+
+      // Start with product base pricing
+      let pricingInput: PricingInput = {
+        subtotal_cents: product.subtotal_cents, // Products only have subtotal_cents
+        tax_cents: 0,
+        discount_cents: 0,
+        total_cents: undefined // Will be calculated
+      };
+
+      // Apply custom overrides if provided
+      if (validatedData.custom_subtotal_cents !== undefined ||
+          validatedData.custom_tax_cents !== undefined ||
+          validatedData.custom_discount_cents !== undefined ||
+          validatedData.custom_total_cents !== undefined) {
+
+        console.log('🎨 Applying custom pricing overrides...');
+        pricingInput = {
+          subtotal_cents: validatedData.custom_subtotal_cents ?? product.subtotal_cents,
+          tax_cents: validatedData.custom_tax_cents,
+          discount_cents: validatedData.custom_discount_cents,
+          total_cents: validatedData.custom_total_cents
+        };
+      }
+
+      const pricingResult = processIntelligentPricing(pricingInput);
+      console.log('✅ Product subscription pricing result:', {
+        scenario: pricingResult.scenario,
+        calculated_fields: pricingResult.calculated_fields,
+        pricing: pricingResult.pricing
+      });
+
+      const finalSubtotalCents = pricingResult.pricing.subtotal_cents;
+      const finalTaxCents = pricingResult.pricing.tax_cents;
+      const finalDiscountCents = pricingResult.pricing.discount_cents;
+      const finalTotalCents = pricingResult.pricing.total_cents;
       const finalTrialDays = validatedData.custom_trial_days ?? product.trial_days;
       const finalCurrency = product.currency;
       const billingInterval = product.billing_interval;
@@ -175,8 +217,11 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         throw new HTTPException(400, { message: 'Product must have a billing interval for subscriptions' });
       }
 
-      console.log('💰 Using product pricing:', {
-        price_cents: finalPriceCents,
+      console.log('💰 Using product pricing (NEW UNIFIED SYSTEM):', {
+        subtotal_cents: finalSubtotalCents,
+        tax_cents: finalTaxCents,
+        discount_cents: finalDiscountCents,
+        total_cents: finalTotalCents,
         currency: finalCurrency,
         billing_interval: billingInterval,
         trial_days: finalTrialDays
@@ -218,7 +263,13 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         current_period_end: periodEnd,
         cancel_at_period_end: false,
         trial_end: finalTrialDays > 0 ? new Date(now.getTime() + finalTrialDays * 24 * 60 * 60 * 1000).toISOString() : null,
-        price_cents: finalPriceCents,
+
+        // NEW UNIFIED PRICING SYSTEM
+        subtotal_cents: finalSubtotalCents,
+        tax_cents: finalTaxCents,
+        discount_cents: finalDiscountCents,
+        total_cents: finalTotalCents,
+
         currency: finalCurrency,
         // New billing fields
         billing_interval: billingInterval,
@@ -251,7 +302,7 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       // TODO: Uncomment when provider integration is implemented
       // providerSubscriptionData = {
       //   customer_id: customer.provider_customer_id,
-      //   price_cents: finalPriceCents,
+      //   total_cents: finalTotalCents, // Use total_cents instead of price_cents
       //   currency: finalCurrency,
       //   interval: billingInterval,
       //   trial_period_days: finalTrialDays,
@@ -267,19 +318,40 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       // Custom subscription (no product)
       console.log('🎨 Creating custom subscription...');
 
-      if (!validatedData.price_cents || !validatedData.currency || !validatedData.billing_interval) {
+      // Validate required fields for custom subscription
+      if (!validatedData.currency || !validatedData.billing_interval) {
         throw new HTTPException(400, {
-          message: 'For custom subscriptions, price_cents, currency, and billing_interval are required'
+          message: 'For custom subscriptions, currency and billing_interval are required'
         });
       }
 
+      // 🧠 INTELLIGENT PRICING for custom subscription
+      console.log('🧠 Processing custom subscription pricing...');
+      const pricingInput: PricingInput = {
+        subtotal_cents: validatedData.subtotal_cents,
+        tax_cents: validatedData.tax_cents,
+        discount_cents: validatedData.discount_cents,
+        total_cents: validatedData.total_cents
+      };
+
+      const pricingResult = processIntelligentPricing(pricingInput);
+      console.log('✅ Custom subscription pricing result:', {
+        scenario: pricingResult.scenario,
+        calculated_fields: pricingResult.calculated_fields,
+        pricing: pricingResult.pricing
+      });
+
       const finalTrialDays = validatedData.trial_days || 0;
 
-      console.log('💰 Using custom pricing:', {
-        price_cents: validatedData.price_cents,
+      console.log('💰 Using intelligent custom pricing:', {
+        subtotal_cents: pricingResult.pricing.subtotal_cents,
+        tax_cents: pricingResult.pricing.tax_cents,
+        discount_cents: pricingResult.pricing.discount_cents,
+        total_cents: pricingResult.pricing.total_cents,
         currency: validatedData.currency,
         billing_interval: validatedData.billing_interval,
-        trial_days: finalTrialDays
+        trial_days: finalTrialDays,
+        scenario: pricingResult.scenario
       });
 
       // Calculate period dates
@@ -318,7 +390,13 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         current_period_end: periodEnd,
         cancel_at_period_end: false,
         trial_end: finalTrialDays > 0 ? new Date(now.getTime() + finalTrialDays * 24 * 60 * 60 * 1000).toISOString() : null,
-        price_cents: validatedData.price_cents,
+
+        // INTELLIGENT PRICING SYSTEM RESULT
+        subtotal_cents: pricingResult.pricing.subtotal_cents,
+        tax_cents: pricingResult.pricing.tax_cents,
+        discount_cents: pricingResult.pricing.discount_cents,
+        total_cents: pricingResult.pricing.total_cents,
+
         currency: validatedData.currency,
         // New billing fields
         billing_interval: validatedData.billing_interval,
@@ -333,7 +411,7 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
           is_custom_subscription: true
         }),
         // Enhanced tracking fields
-        description: validatedData.description || `Custom ${validatedData.billing_interval} subscription - $${(validatedData.price_cents / 100).toFixed(2)}`,
+        description: validatedData.description || `Custom ${validatedData.billing_interval} subscription - $${(pricingResult.pricing.total_cents / 100).toFixed(2)}`,
         concept: validatedData.concept || `Custom ${validatedData.billing_interval.charAt(0).toUpperCase() + validatedData.billing_interval.slice(1)} Subscription`,
         reference_code: validatedData.reference_code || `subscription_custom_${validatedData.billing_interval}`,
         category: validatedData.category || 'subscription',
@@ -350,14 +428,15 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       // TODO: Uncomment when provider integration is implemented
       // providerSubscriptionData = {
       //   customer_id: customer.provider_customer_id,
-      //   price_cents: validatedData.price_cents,
+      //   total_cents: pricingResult.pricing.total_cents, // Use calculated total_cents
       //   currency: validatedData.currency,
       //   interval: validatedData.billing_interval,
       //   trial_period_days: finalTrialDays,
       //   payment_method_id: validatedData.payment_method_id,
       //   metadata: {
       //     subscription_id: subscriptionData.id,
-      //     is_custom: true
+      //     is_custom: true,
+      //     pricing_scenario: pricingResult.scenario
       //   }
       // };
     }
@@ -410,7 +489,7 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
         // Create subscription with provider
         const providerSubscriptionRequest = {
           customer_id: customer.provider_customer_id!,
-          price_cents: subscriptionData.price_cents,
+          total_cents: subscriptionData.total_cents, // Use total_cents instead of price_cents
           currency: subscriptionData.currency,
           billing_interval: subscriptionData.billing_interval as any,
           interval_multiplier: subscriptionData.interval_multiplier,
@@ -438,7 +517,7 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
 
         console.log('📤 Creating provider subscription with data:', {
           customer_id: providerSubscriptionRequest.customer_id,
-          price_cents: providerSubscriptionRequest.price_cents,
+          total_cents: providerSubscriptionRequest.total_cents,
           currency: providerSubscriptionRequest.currency,
           billing_interval: providerSubscriptionRequest.billing_interval,
           has_trial: !!providerSubscriptionRequest.trial_period_days
@@ -478,7 +557,13 @@ subscriptions.post('/', optionalAuthMiddleware, async (c) => {
       current_period_end: subscription.current_period_end,
       cancel_at_period_end: subscription.cancel_at_period_end,
       trial_end: subscription.trial_end,
-      price_cents: subscription.price_cents,
+
+      // NEW UNIFIED PRICING SYSTEM
+      subtotal_cents: subscription.subtotal_cents,
+      tax_cents: subscription.tax_cents,
+      discount_cents: subscription.discount_cents,
+      total_cents: subscription.total_cents,
+
       currency: subscription.currency,
       metadata: subscription.metadata ? JSON.parse(subscription.metadata) : null,
       // Enhanced tracking fields

@@ -29,11 +29,25 @@ const analyticsQuerySchema = z.object({
 
 const migratePricesSchema = z.object({
   subscription_ids: z.array(z.string()).optional(),
-  old_price_cents: z.number().int().min(0).optional(),
-  new_price_cents: z.number().int().min(0),
+  // NEW UNIFIED PRICING SYSTEM
+  old_pricing: z.object({
+    subtotal_cents: z.number().int().min(0).optional(),
+    tax_cents: z.number().int().min(0).optional(),
+    discount_cents: z.number().int().min(0).optional(),
+    total_cents: z.number().int().min(0).optional()
+  }).optional(),
+  new_pricing: z.object({
+    subtotal_cents: z.number().int().min(0),
+    tax_cents: z.number().int().min(0).default(0),
+    discount_cents: z.number().int().min(0).default(0),
+    total_cents: z.number().int().min(0)
+  }),
   effective_date: z.string().optional(),
   provider_id: z.string().optional().default('stripe'),
   dryRun: z.boolean().optional().default(false)
+}).refine((data) => data.new_pricing.total_cents === data.new_pricing.subtotal_cents + data.new_pricing.tax_cents - data.new_pricing.discount_cents, {
+  message: "new_pricing.total_cents must equal subtotal_cents + tax_cents - discount_cents",
+  path: ["new_pricing", "total_cents"]
 });
 
 // GET /admin/subscriptions/analytics - Subscription analytics

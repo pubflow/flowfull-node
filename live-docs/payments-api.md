@@ -41,6 +41,11 @@ https://your-api-domain.com/bridge-payment
 | GET | `/payments` | List user payments | Yes* |
 | GET | `/payments?token=<token>` | List guest payments with token | Token Required |
 | POST | `/payments/:id/cancel` | Cancel payment intent | Optional |
+| GET | `/invoices` | List invoices | Yes* |
+| GET | `/invoices/:id` | Get invoice by ID | Optional |
+| POST | `/invoices` | Create invoice | Yes |
+| PUT | `/invoices/:id` | Update invoice | Yes |
+| POST | `/invoices/:id/pay` | Pay invoice | Optional |
 
 *For authenticated users or guest users with valid tokens
 
@@ -163,13 +168,23 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `amount_cents` | number | Yes | Payment amount in cents (e.g., 2000 = $20.00) |
+| `subtotal_cents` | number | Yes | Base payment amount in cents (before tax/discounts) |
+| `tax_cents` | number | No | Tax amount in cents (default: 0) |
+| `discount_cents` | number | No | Discount amount in cents (default: 0) |
+| `total_cents` | number | Yes | Final payment amount in cents (subtotal + tax - discount) |
 | `currency` | string | Yes | 3-letter currency code (e.g., "USD", "EUR") |
 | `description` | string | No | Payment description |
+| `concept` | string | No | Human-readable concept (e.g., "Monthly Subscription", "Product Purchase") |
+| `reference_code` | string | No | Machine-readable code for analytics |
+| `category` | string | No | High-level category (e.g., "subscription", "donation", "purchase") |
 | `provider_id` | string | Yes | Payment provider (e.g., "stripe") |
 | `payment_method_id` | string | No | Existing payment method ID |
 | `return_url` | string | No | URL to redirect after payment |
 | `setup_future_usage` | string | No | Set to "off_session" to save payment method for future use |
+| `is_manual_payment` | boolean | No | Set to true for manual/legacy payments |
+| `manual_payment_method` | string | No | Manual payment method ('cash', 'check', 'bank_transfer') |
+| `manual_payment_reference` | string | No | Reference for manual payment |
+| `applied_coupons` | array | No | Array of applied coupon objects |
 | `metadata` | object | No | Additional metadata |
 | `guest_data` | object | No* | Guest customer data (*required for guests) |
 | `guest_data.email` | string | Yes | Guest email address |
@@ -188,26 +203,39 @@ Content-Type: application/json
   "id": "pay_1234567890",
   "provider_intent_id": "pi_1234567890abcdef",
   "client_secret": "pi_1234567890abcdef_secret_xyz",
-  "amount_cents": 2000,
+  "subtotal_cents": 1800,
+  "tax_cents": 200,
+  "discount_cents": 0,
+  "total_cents": 2000,
   "currency": "USD",
   "status": "requires_confirmation",
   "provider_id": "stripe",
+  "concept": "Premium Subscription",
+  "reference_code": "sub_premium_monthly",
+  "category": "subscription",
   "is_guest_payment": false,
+  "is_manual_payment": false,
   "created_at": "2025-01-15T10:30:00Z"
 }
 ```
 
 ### Examples
 
-#### Authenticated User Payment
+#### Authenticated User Payment (New Unified Pricing)
 ```bash
 curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   -H "Authorization: Bearer your_token_here" \
   -H "Content-Type: application/json" \
   -d '{
-    "amount_cents": 2000,
+    "subtotal_cents": 1800,
+    "tax_cents": 200,
+    "discount_cents": 0,
+    "total_cents": 2000,
     "currency": "USD",
     "description": "Premium subscription",
+    "concept": "Monthly Subscription",
+    "reference_code": "sub_premium_monthly",
+    "category": "subscription",
     "provider_id": "stripe",
     "payment_method_id": "pm_1234567890",
     "metadata": {
@@ -217,15 +245,27 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   }'
 ```
 
-#### Guest Payment
+#### Guest Payment with Coupon
 ```bash
 curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   -H "Content-Type: application/json" \
   -d '{
-    "amount_cents": 1500,
+    "subtotal_cents": 1500,
+    "tax_cents": 120,
+    "discount_cents": 150,
+    "total_cents": 1470,
     "currency": "USD",
-    "description": "Guest purchase",
+    "description": "Guest purchase with discount",
+    "concept": "Product Purchase",
+    "reference_code": "guest_purchase_001",
+    "category": "purchase",
     "provider_id": "stripe",
+    "applied_coupons": [
+      {
+        "code": "WELCOME10",
+        "discount_amount_cents": 150
+      }
+    ],
     "guest_data": {
       "email": "guest@example.com",
       "name": "Guest User",
@@ -237,20 +277,27 @@ curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   }'
 ```
 
-#### Payment with Save Method (setup_future_usage)
+#### Manual Payment (Cash/Check)
 ```bash
 curl -X POST "https://api.example.com/bridge-payment/payments/intents" \
   -H "Authorization: Bearer your_token_here" \
   -H "Content-Type: application/json" \
   -d '{
-    "amount_cents": 2000,
+    "subtotal_cents": 2000,
+    "tax_cents": 0,
+    "discount_cents": 0,
+    "total_cents": 2000,
     "currency": "USD",
-    "description": "Subscription with saved payment method",
-    "provider_id": "stripe",
-    "setup_future_usage": "off_session",
+    "description": "Cash payment for service",
+    "concept": "Service Payment",
+    "reference_code": "cash_payment_001",
+    "category": "service",
+    "is_manual_payment": true,
+    "manual_payment_method": "cash",
+    "manual_payment_reference": "CASH-2025-001",
     "metadata": {
-      "subscription_id": "sub_123",
-      "save_payment_method": true
+      "service_id": "srv_123",
+      "location": "Main Office"
     }
   }'
 ```
@@ -1882,3 +1929,233 @@ For technical support or questions about the Payments API:
 - **Reference Code Field**: Added reference_code to payment list and detail responses
 - **Status Priority**: Enhanced status handling for payment continuation scenarios
 - **Guest Data Processing**: Improved guest information extraction and display
+
+---
+
+## Invoices API
+
+The Invoices API allows you to create, manage, and process invoices with integrated payment functionality. Invoices support both authenticated users and guest customers, with automatic payment method tracking and reference linking.
+
+### Invoice Features
+
+- **Unified Pricing System**: Full breakdown with subtotal, tax, discount, and total amounts
+- **Guest Invoice Support**: Create invoices for guest customers without accounts
+- **Payment Integration**: Automatic linking to payments when invoices are paid
+- **Payment Method Tracking**: Saves payment method used when invoice is completed
+- **Payment Links**: Generate unique URLs for invoice payment
+- **Reference Codes**: Custom reference codes for tracking and analytics
+- **Coupon Support**: Track applied coupons and discounts
+
+### Create Invoice
+
+Create a new invoice for a customer.
+
+#### Request
+
+```http
+POST /bridge-payment/invoices
+```
+
+#### Headers
+
+```http
+Authorization: Bearer <token>  # Required for authenticated users
+Content-Type: application/json
+```
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `invoice_number` | string | Yes | Unique invoice number |
+| `customer_id` | string | No | Customer ID (for authenticated users) |
+| `subtotal_cents` | number | Yes | Base amount before tax/discounts |
+| `tax_cents` | number | No | Tax amount in cents (default: 0) |
+| `discount_cents` | number | No | Discount amount in cents (default: 0) |
+| `total_cents` | number | Yes | Final amount (subtotal + tax - discount) |
+| `currency` | string | Yes | 3-letter currency code |
+| `due_date` | string | Yes | Invoice due date (ISO 8601) |
+| `description` | string | No | Invoice description |
+| `reference_code` | string | No | Custom reference code |
+| `payment_link_expires_at` | string | No | Payment link expiration (ISO 8601) |
+| `applied_coupons` | array | No | Array of applied coupon objects |
+| `guest_data` | object | No* | Guest customer data (*required for guests) |
+| `guest_data.email` | string | Yes | Guest email address |
+| `guest_data.name` | string | Yes | Guest full name |
+| `metadata` | object | No | Additional metadata |
+
+#### Response
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+```
+
+```json
+{
+  "id": "inv_1234567890",
+  "invoice_number": "INV-2025-001",
+  "customer_id": "cust_abc123",
+  "status": "open",
+  "subtotal_cents": 1800,
+  "tax_cents": 200,
+  "discount_cents": 100,
+  "total_cents": 1900,
+  "currency": "USD",
+  "issue_date": "2025-06-21T10:00:00Z",
+  "due_date": "2025-07-21T10:00:00Z",
+  "payment_link_url": "https://pay.example.com/invoice/inv_1234567890",
+  "payment_link_expires_at": "2025-08-21T10:00:00Z",
+  "reference_code": "service_contract_001",
+  "is_guest_invoice": false,
+  "payment_id": null,
+  "payment_method_id": null,
+  "created_at": "2025-06-21T10:00:00Z"
+}
+```
+
+### Pay Invoice
+
+Process payment for an existing invoice.
+
+#### Request
+
+```http
+POST /bridge-payment/invoices/{id}/pay
+```
+
+#### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | Invoice ID |
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `payment_method_id` | string | Yes | Payment method to use |
+| `provider_id` | string | No | Payment provider (default: "stripe") |
+| `return_url` | string | No | URL to redirect after payment |
+| `save_payment_method` | boolean | No | Save payment method for future use |
+
+#### Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+```
+
+```json
+{
+  "id": "inv_1234567890",
+  "status": "paid",
+  "payment_id": "pay_9876543210",
+  "payment_method_id": "pm_card_visa_4242",
+  "paid_date": "2025-06-21T10:30:00Z",
+  "payment_status": "succeeded",
+  "updated_at": "2025-06-21T10:30:00Z"
+}
+```
+
+### Get Invoice
+
+Retrieve a specific invoice by ID.
+
+#### Request
+
+```http
+GET /bridge-payment/invoices/{id}
+```
+
+#### Response
+
+```json
+{
+  "id": "inv_1234567890",
+  "invoice_number": "INV-2025-001",
+  "customer_id": "cust_abc123",
+  "status": "paid",
+  "subtotal_cents": 1800,
+  "tax_cents": 200,
+  "discount_cents": 100,
+  "total_cents": 1900,
+  "currency": "USD",
+  "issue_date": "2025-06-21T10:00:00Z",
+  "due_date": "2025-07-21T10:00:00Z",
+  "paid_date": "2025-06-21T10:30:00Z",
+  "payment_id": "pay_9876543210",
+  "payment_method_id": "pm_card_visa_4242",
+  "reference_code": "service_contract_001",
+  "applied_coupons": [
+    {
+      "code": "EARLY_BIRD",
+      "discount_amount_cents": 100
+    }
+  ],
+  "is_guest_invoice": false,
+  "created_at": "2025-06-21T10:00:00Z",
+  "updated_at": "2025-06-21T10:30:00Z"
+}
+```
+
+### List Invoices
+
+List invoices for the authenticated user or guest.
+
+#### Request
+
+```http
+GET /bridge-payment/invoices
+```
+
+#### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Filter by status ('draft', 'open', 'paid', 'void') |
+| `limit` | number | Number of results (default: 20, max: 100) |
+| `offset` | number | Pagination offset (default: 0) |
+| `orderBy` | string | Sort field ('created_at', 'due_date', 'total_cents') |
+| `orderDir` | string | Sort direction ('asc', 'desc') |
+| `token` | string | Guest token for guest invoice access |
+
+#### Response
+
+```json
+{
+  "invoices": [
+    {
+      "id": "inv_1234567890",
+      "invoice_number": "INV-2025-001",
+      "status": "paid",
+      "total_cents": 1900,
+      "currency": "USD",
+      "due_date": "2025-07-21T10:00:00Z",
+      "paid_date": "2025-06-21T10:30:00Z",
+      "reference_code": "service_contract_001",
+      "created_at": "2025-06-21T10:00:00Z"
+    }
+  ],
+  "pagination": {
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": false
+  }
+}
+```
+
+### Invoice Status Values
+
+| Status | Description |
+|--------|-------------|
+| `draft` | Invoice is being prepared |
+| `open` | Invoice is sent and awaiting payment |
+| `paid` | Invoice has been paid successfully |
+| `void` | Invoice has been voided/cancelled |
+| `uncollectible` | Invoice marked as uncollectible |
+
+---
+
+## Version History

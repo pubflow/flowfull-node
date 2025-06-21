@@ -10,7 +10,13 @@ import { templateService } from './template-service';
 interface TransactionData {
   // Payment information
   id: string;
-  amount_cents: number;
+  // NEW UNIFIED PRICING SYSTEM
+  subtotal_cents?: number;
+  tax_cents?: number;
+  discount_cents?: number;
+  total_cents?: number;
+  // Legacy support
+  amount_cents?: number;
   currency: string;
   status: string;
   description?: string;
@@ -226,8 +232,8 @@ export class ReceiptService {
       customer_name: customer.name,
       customer_email: customer.email,
       
-      // Transaction details
-      amount: this.formatAmount(transaction.amount_cents),
+      // Transaction details with INTELLIGENT PRICING SYSTEM
+      amount: this.formatAmount(transaction.total_cents || transaction.amount_cents || 0),
       currency: transaction.currency.toUpperCase(),
       concept: transaction.concept || transaction.description || 'Payment',
       reference_code: transaction.reference_code || transaction.id,
@@ -386,6 +392,12 @@ export class ReceiptService {
   async testEmailConfiguration(): Promise<{ success: boolean; message?: string }> {
     const testTransaction: TransactionData = {
       id: 'test_' + Date.now(),
+      // NEW UNIFIED PRICING SYSTEM
+      subtotal_cents: 2500,
+      tax_cents: 0,
+      discount_cents: 0,
+      total_cents: 2500,
+      // Legacy support
       amount_cents: 2500,
       currency: 'USD',
       status: 'succeeded',

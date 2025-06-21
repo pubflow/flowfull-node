@@ -97,11 +97,20 @@ Content-Type: application/json
 | `provider_id` | string | No | Payment provider (default: "stripe") |
 | `organization_id` | string | No | Organization ID (overrides user's organization) |
 | `trial_days` | number | No | Trial period in days (default: 0) |
-| `price_cents` | number | No* | Price in cents (*required for custom subscriptions) |
-| `currency` | string | No* | Currency code (*required for custom subscriptions) |
-| `billing_interval` | string | No* | Billing frequency (*required for custom subscriptions) |
-| `custom_price_cents` | number | No | Override product price (for product-based subscriptions) |
-| `custom_trial_days` | number | No | Override product trial days (for product-based subscriptions) |
+| **Custom Pricing (when product_id is null)** |
+| `subtotal_cents` | number | No* | Base amount (*required for custom) |
+| `tax_cents` | number | No | Tax amount (default: 0) |
+| `discount_cents` | number | No | Discount amount (default: 0) |
+| `total_cents` | number | No* | Final amount (*required for custom) |
+| `currency` | string | No* | Currency code (*required for custom) |
+| `billing_interval` | string | No* | Billing frequency (*required for custom) |
+| `interval_multiplier` | number | No | Interval multiplier (default: 1) |
+| **Custom Overrides (for product-based subscriptions)** |
+| `custom_subtotal_cents` | number | No | Override product subtotal |
+| `custom_tax_cents` | number | No | Override product tax |
+| `custom_discount_cents` | number | No | Override product discount |
+| `custom_total_cents` | number | No | Override product total |
+| `custom_trial_days` | number | No | Override product trial days |
 | `metadata` | object | No | Additional metadata |
 | `guest_data` | object | No* | Guest customer data (*required for guests) |
 | `guest_data.email` | string | Yes | Guest email address |
@@ -134,7 +143,10 @@ Content-Type: application/json
   "current_period_end": "2025-02-15T10:30:00Z",
   "cancel_at_period_end": false,
   "trial_end": null,
-  "price_cents": 2999,
+  "subtotal_cents": 2500,
+  "tax_cents": 250,
+  "discount_cents": 0,
+  "total_cents": 2750,
   "currency": "USD",
   "billing_interval": "monthly",
   "interval_multiplier": 1,

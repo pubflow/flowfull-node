@@ -11,6 +11,7 @@ import { optionalAuth } from '../lib/auth/auth-middleware.js';
 import { formatResponse, formatError, validateOrderParams, validatePaginationParams } from '../lib/utils/response-formatter.js';
 import { getPaymentAdapterWithFailover, getPaymentAdapter } from '@/lib/providers/factory';
 import { getPaymentRepository } from '../lib/database/repositories/index.js';
+import { processIntelligentPricing, type PricingInput } from '@/lib/utils/pricing-calculator';
 import { PaymentStatus } from '@/lib/database/types';
 import { PaymentIntentStatus } from '@/lib/providers/base/payment-adapter';
 import { receiptService } from '@/lib/email/receipt-service';
@@ -55,9 +56,14 @@ payments.post('/test-json', async (c) => {
   }
 });
 
-// Validation schemas
+// Validation schemas with INTELLIGENT PRICING SYSTEM
 const createPaymentIntentSchema = z.object({
-  amount_cents: z.number().int().positive(),
+  // INTELLIGENT PRICING SYSTEM - flexible input
+  subtotal_cents: z.number().int().min(0).optional(),
+  tax_cents: z.number().int().min(0).optional(),
+  discount_cents: z.number().int().min(0).optional(),
+  total_cents: z.number().int().min(0).optional(),
+
   currency: z.string().length(3),
   description: z.string().optional(),
   provider_id: z.string().optional(),
@@ -73,7 +79,31 @@ const createPaymentIntentSchema = z.object({
   concept: z.string().optional(), // Human-readable concept (e.g., "Monthly Subscription", "Donation")
   reference_code: z.string().optional(), // Machine-readable code for analytics (e.g., "donation_general", "subscription_monthly")
   category: z.string().optional(), // High-level category (e.g., "donation", "subscription", "purchase")
-  tags: z.string().optional() // Comma-separated tags for flexible categorization
+  tags: z.string().optional(), // Comma-separated tags for flexible categorization
+
+  // Custom/Manual payment support
+  is_manual_payment: z.boolean().default(false),
+  manual_payment_method: z.string().optional(),
+  manual_payment_reference: z.string().optional(),
+  manual_payment_date: z.string().optional(),
+
+  // Coupon tracking
+  applied_coupons: z.array(z.any()).optional()
+}).refine((data) => {
+  // At least one pricing field must be provided
+  const hasPricing = data.subtotal_cents !== undefined ||
+                    data.tax_cents !== undefined ||
+                    data.discount_cents !== undefined ||
+                    data.total_cents !== undefined;
+
+  if (!hasPricing) {
+    throw new Error("At least one pricing field (subtotal_cents, tax_cents, discount_cents, or total_cents) must be provided");
+  }
+
+  return true;
+}, {
+  message: "At least one pricing field must be provided",
+  path: ["pricing"]
 });
 
 const confirmPaymentIntentSchema = z.object({
@@ -182,6 +212,29 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
 
     const validatedData = createPaymentIntentSchema.parse(body);
     console.log('✅ Validated data:', JSON.stringify(validatedData, null, 2));
+
+    // 🧠 INTELLIGENT PRICING CALCULATION
+    console.log('🧠 Processing intelligent pricing...');
+    const pricingInput: PricingInput = {
+      subtotal_cents: validatedData.subtotal_cents,
+      tax_cents: validatedData.tax_cents,
+      discount_cents: validatedData.discount_cents,
+      total_cents: validatedData.total_cents
+    };
+
+    const pricingResult = processIntelligentPricing(pricingInput);
+    console.log('✅ Intelligent pricing result:', {
+      scenario: pricingResult.scenario,
+      calculated_fields: pricingResult.calculated_fields,
+      pricing: pricingResult.pricing
+    });
+
+    // Update validatedData with calculated pricing
+    const finalPricing = pricingResult.pricing;
+    validatedData.subtotal_cents = finalPricing.subtotal_cents;
+    validatedData.tax_cents = finalPricing.tax_cents;
+    validatedData.discount_cents = finalPricing.discount_cents;
+    validatedData.total_cents = finalPricing.total_cents;
 
     // Debug: Check what's in the context
     const user = c.get('user');
@@ -326,7 +379,7 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
     }
 
     const paymentIntent = await adapter.createPaymentIntent({
-      amount_cents: validatedData.amount_cents,
+      amount_cents: validatedData.total_cents, // Use total_cents for final payment amount
       currency: validatedData.currency,
       description: validatedData.description,
       payment_method_id: validatedData.payment_method_id,
@@ -413,7 +466,11 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
         provider_payment_id: null,
         provider_intent_id: paymentIntent.id,
         client_secret: paymentIntent.client_secret || null,
-        amount_cents: validatedData.amount_cents,
+        // NEW UNIFIED PRICING SYSTEM
+        subtotal_cents: validatedData.subtotal_cents,
+        tax_cents: validatedData.tax_cents,
+        discount_cents: validatedData.discount_cents,
+        total_cents: validatedData.total_cents,
         currency: validatedData.currency,
         status: mapPaymentIntentStatus(paymentIntent.status),
         description: validatedData.description || null,
@@ -423,6 +480,13 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
         reference_code: validatedData.reference_code || null,
         category: validatedData.category || null,
         tags: validatedData.tags || null,
+        // Custom/Manual payment support
+        is_manual_payment: validatedData.is_manual_payment,
+        manual_payment_method: validatedData.manual_payment_method || null,
+        manual_payment_reference: validatedData.manual_payment_reference || null,
+        manual_payment_date: validatedData.manual_payment_date || null,
+        // Coupon tracking
+        applied_coupons: validatedData.applied_coupons ? JSON.stringify(validatedData.applied_coupons) : null,
         is_guest_payment: false, // Will be overridden to 1 in createGuestPayment
         metadata: JSON.stringify(validatedData.metadata || {}),
         completed_at: null,
@@ -443,7 +507,11 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
         provider_payment_id: null,
         provider_intent_id: paymentIntent.id,
         client_secret: paymentIntent.client_secret || null,
-        amount_cents: validatedData.amount_cents,
+        // NEW UNIFIED PRICING SYSTEM
+        subtotal_cents: validatedData.subtotal_cents,
+        tax_cents: validatedData.tax_cents,
+        discount_cents: validatedData.discount_cents,
+        total_cents: validatedData.total_cents,
         currency: validatedData.currency,
         status: mapPaymentIntentStatus(paymentIntent.status),
         description: validatedData.description || null,
@@ -453,6 +521,13 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
         reference_code: validatedData.reference_code || null,
         category: validatedData.category || null,
         tags: validatedData.tags || null,
+        // Custom/Manual payment support
+        is_manual_payment: validatedData.is_manual_payment,
+        manual_payment_method: validatedData.manual_payment_method || null,
+        manual_payment_reference: validatedData.manual_payment_reference || null,
+        manual_payment_date: validatedData.manual_payment_date || null,
+        // Coupon tracking
+        applied_coupons: validatedData.applied_coupons ? JSON.stringify(validatedData.applied_coupons) : null,
         is_guest_payment: false,
         guest_data: null,
         guest_email: null,
@@ -467,11 +542,18 @@ payments.post('/payments/intents', optionalAuth(), async (c) => {
       id: payment.id,
       provider_intent_id: paymentIntent.id,
       client_secret: paymentIntent.client_secret,
-      amount_cents: payment.amount_cents,
+      // NEW UNIFIED PRICING RESPONSE
+      pricing: {
+        subtotal_cents: payment.subtotal_cents || validatedData.subtotal_cents,
+        tax_cents: payment.tax_cents || validatedData.tax_cents,
+        discount_cents: payment.discount_cents || validatedData.discount_cents,
+        total_cents: payment.total_cents || validatedData.total_cents
+      },
       currency: payment.currency,
       status: payment.status,
       provider_id: payment.provider_id,
       is_guest_payment: payment.is_guest_payment,
+      is_manual_payment: payment.is_manual_payment || validatedData.is_manual_payment,
       created_at: payment.created_at
     }, 201);
 
@@ -1456,14 +1538,25 @@ payments.get('/payments', optionalAuth(), async (c) => {
         console.log(`✅ Found ${userPayments.length} user payments for user_id: ${user.id}`);
       }
 
-      // Format payments data
+      // Format payments data with NEW UNIFIED PRICING SYSTEM
       const formattedPayments = userPayments.map(p => ({
         id: p.id,
-        amount_cents: p.amount_cents,
+        // NEW UNIFIED PRICING SYSTEM
+        subtotal_cents: p.subtotal_cents || p.amount_cents || 0,
+        tax_cents: p.tax_cents || 0,
+        discount_cents: p.discount_cents || 0,
+        total_cents: p.total_cents || p.amount_cents || 0,
+        // Legacy compatibility
+        amount_cents: p.total_cents || p.amount_cents || 0,
         currency: p.currency,
         status: p.status,
         description: p.description,
         provider_id: p.provider_id,
+        // Enhanced tracking fields
+        concept: p.concept,
+        reference_code: p.reference_code,
+        category: p.category,
+        tags: p.tags,
         created_at: p.created_at,
         updated_at: p.updated_at,
         completed_at: p.completed_at,
@@ -1515,11 +1608,22 @@ payments.get('/payments', optionalAuth(), async (c) => {
             data: {
               payments: guestPayments.map(p => ({
                 id: p.id,
-                amount_cents: p.amount_cents,
+                // NEW UNIFIED PRICING SYSTEM
+                subtotal_cents: p.subtotal_cents || p.amount_cents || 0,
+                tax_cents: p.tax_cents || 0,
+                discount_cents: p.discount_cents || 0,
+                total_cents: p.total_cents || p.amount_cents || 0,
+                // Legacy compatibility
+                amount_cents: p.total_cents || p.amount_cents || 0,
                 currency: p.currency,
                 status: p.status,
                 description: p.description,
                 provider_id: p.provider_id,
+                // Enhanced tracking fields
+                concept: p.concept,
+                reference_code: p.reference_code,
+                category: p.category,
+                tags: p.tags,
                 created_at: p.created_at,
                 updated_at: p.updated_at,
                 completed_at: p.completed_at,
@@ -1675,10 +1779,16 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         }
       }
 
-      // Return payment details (exclude sensitive data for non-admin users)
+      // Return payment details with NEW UNIFIED PRICING SYSTEM (exclude sensitive data for non-admin users)
       const paymentData = {
         id: payment.id,
-        amount_cents: payment.amount_cents,
+        // NEW UNIFIED PRICING SYSTEM
+        subtotal_cents: (payment as any).subtotal_cents || (payment as any).amount_cents || 0,
+        tax_cents: (payment as any).tax_cents || 0,
+        discount_cents: (payment as any).discount_cents || 0,
+        total_cents: (payment as any).total_cents || (payment as any).amount_cents || 0,
+        // Legacy compatibility
+        amount_cents: (payment as any).total_cents || (payment as any).amount_cents || 0,
         currency: payment.currency,
         status: payment.status,
         description: payment.description,
@@ -1764,10 +1874,16 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
             }
           }
 
-          // Return limited payment details for fallback access
+          // Return limited payment details for fallback access with NEW UNIFIED PRICING SYSTEM
           const paymentData = {
             id: payment.id,
-            amount_cents: payment.amount_cents,
+            // NEW UNIFIED PRICING SYSTEM
+            subtotal_cents: (payment as any).subtotal_cents || (payment as any).amount_cents || 0,
+            tax_cents: (payment as any).tax_cents || 0,
+            discount_cents: (payment as any).discount_cents || 0,
+            total_cents: (payment as any).total_cents || (payment as any).amount_cents || 0,
+            // Legacy compatibility
+            amount_cents: (payment as any).total_cents || (payment as any).amount_cents || 0,
             currency: payment.currency,
             status: payment.status,
             description: payment.description,
