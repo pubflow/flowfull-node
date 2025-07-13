@@ -40,7 +40,7 @@ export function getAuthConfig(): AuthConfig {
     MAX_AUTH_ATTEMPTS: parseInt(process.env.MAX_AUTH_ATTEMPTS || '5'),
     
     // User type restrictions
-    ADMIN_USER_TYPES: (process.env.ADMIN_USER_TYPES || 'admin,super_admin').split(',').map(s => s.trim()),
+    ADMIN_USER_TYPES: (process.env.ADMIN_USER_TYPES || 'admin').split(',').map(s => s.trim()),
     USER_USER_TYPES: (process.env.USER_USER_TYPES || 'admin,user,premium').split(',').map(s => s.trim()),
     GUEST_USER_TYPES: (process.env.GUEST_USER_TYPES || 'admin,user,guest').split(',').map(s => s.trim())
   };

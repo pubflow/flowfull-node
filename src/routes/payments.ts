@@ -1552,6 +1552,8 @@ payments.get('/payments', optionalAuth(), async (c) => {
         status: p.status,
         description: p.description,
         provider_id: p.provider_id,
+        // Payment method reference
+        payment_method_id: p.payment_method_id,
         // Enhanced tracking fields
         concept: p.concept,
         reference_code: p.reference_code,
