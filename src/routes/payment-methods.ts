@@ -110,7 +110,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
     const { orderBy, orderDir } = validateOrderParams(
       c.req.query('orderBy'),
       c.req.query('orderDir'),
-      ['created_at', 'payment_type', 'card_brand', 'last_four']
+      ['created_at', 'payment_type', 'card_brand', 'last_four', 'alias']
     );
 
     console.log(`💳 Payment methods list requested by: ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
@@ -131,7 +131,12 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         userPaymentMethods = allPaymentMethods.filter(pm =>
           pm.is_guest && pm.guest_email === user.email &&
           (!payment_type || pm.payment_type === payment_type) &&
-          (!card_brand || pm.card_brand === card_brand)
+          (!card_brand || pm.card_brand === card_brand) &&
+          (!search ||
+            (pm.alias && pm.alias.toLowerCase().includes(search.toLowerCase())) ||
+            (pm.last_four && pm.last_four.includes(search)) ||
+            (pm.card_brand && pm.card_brand.toLowerCase().includes(search.toLowerCase()))
+          )
         );
 
         // Apply pagination
@@ -147,7 +152,12 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         const allPaymentMethods = await paymentMethodRepo.findByUserId(user.id);
         userPaymentMethods = allPaymentMethods.filter(pm =>
           (!payment_type || pm.payment_type === payment_type) &&
-          (!card_brand || pm.card_brand === card_brand)
+          (!card_brand || pm.card_brand === card_brand) &&
+          (!search ||
+            (pm.alias && pm.alias.toLowerCase().includes(search.toLowerCase())) ||
+            (pm.last_four && pm.last_four.includes(search)) ||
+            (pm.card_brand && pm.card_brand.toLowerCase().includes(search.toLowerCase()))
+          )
         );
 
         // Apply pagination
@@ -168,6 +178,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
         last_four: pm.last_four,
         expiry_month: pm.expiry_month,
         expiry_year: pm.expiry_year,
+        alias: pm.alias, // ✅ Include alias field
         is_default: pm.is_default,
         is_guest: pm.is_guest,
         billing_address_id: pm.billing_address_id, // ✅ Include billing address ID
@@ -217,7 +228,12 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
           let guestPaymentMethods = allPaymentMethods.filter(pm =>
             pm.is_guest && pm.guest_email === guestEmail &&
             (!payment_type || pm.payment_type === payment_type) &&
-            (!card_brand || pm.card_brand === card_brand)
+            (!card_brand || pm.card_brand === card_brand) &&
+            (!search ||
+              (pm.alias && pm.alias.toLowerCase().includes(search.toLowerCase())) ||
+              (pm.last_four && pm.last_four.includes(search)) ||
+              (pm.card_brand && pm.card_brand.toLowerCase().includes(search.toLowerCase()))
+            )
           );
 
           // Apply pagination
@@ -236,6 +252,7 @@ paymentMethods.get('/', optionalAuth(), async (c) => {
             last_four: pm.last_four,
             expiry_month: pm.expiry_month,
             expiry_year: pm.expiry_year,
+            alias: pm.alias, // ✅ Include alias field
             is_default: pm.is_default,
             is_guest: pm.is_guest,
             guest_email: pm.guest_email,
@@ -299,6 +316,7 @@ const createPaymentMethodWithTokenSchema = z.object({
   wallet_type: z.enum(['apple_pay', 'google_pay', 'samsung_pay']).optional(), // Optional additional info for wallet payments
   provider_id: z.string(),
   payment_method_token: z.string(), // Required for token-based creation
+  alias: z.string().optional(), // User-friendly name for the payment method
   billing_address_id: z.string().optional(), // Optional: Use existing address
   billing_details: z.object({
     name: z.string(),
@@ -692,6 +710,7 @@ paymentMethods.get('/:id', optionalAuth(), async (c) => {
         last_four: paymentMethod.last_four,
         expiry_month: paymentMethod.expiry_month,
         expiry_year: paymentMethod.expiry_year,
+        alias: paymentMethod.alias, // ✅ Include alias field
         is_default: paymentMethod.is_default,
         is_guest: paymentMethod.is_guest,
         created_at: paymentMethod.created_at,
@@ -759,6 +778,7 @@ paymentMethods.get('/:id', optionalAuth(), async (c) => {
             last_four: paymentMethod.last_four,
             expiry_month: paymentMethod.expiry_month,
             expiry_year: paymentMethod.expiry_year,
+            alias: paymentMethod.alias, // ✅ Include alias field
             is_default: paymentMethod.is_default,
             is_guest: paymentMethod.is_guest,
             guest_email: paymentMethod.guest_email,
@@ -860,6 +880,7 @@ paymentMethods.get('/customer/:customerId', optionalAuth(), async (c) => {
 const updatePaymentMethodSchema = z.object({
   is_default: z.boolean().optional(),
   billing_address_id: z.string().uuid().optional().nullable(),
+  alias: z.string().optional().nullable(), // User-friendly name for the payment method
   metadata: z.record(z.string()).optional()
 });
 
@@ -1003,6 +1024,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
     const updateData = {
       is_default: validatedData.is_default,
       billing_address_id: resolvedBillingAddressId, // Use resolved billing address ID
+      alias: validatedData.alias, // ✅ Update alias field
       metadata: metadataJson, // ✅ Store metadata as JSON string
       updated_at: new Date().toISOString()
     };
@@ -1028,6 +1050,7 @@ paymentMethods.put('/:id', optionalAuth(), async (c) => {
       last_four: updatedPaymentMethod.last_four,
       expiry_month: updatedPaymentMethod.expiry_month,
       expiry_year: updatedPaymentMethod.expiry_year,
+      alias: updatedPaymentMethod.alias, // ✅ Include alias field
       is_default: updatedPaymentMethod.is_default,
       is_guest: updatedPaymentMethod.is_guest,
       created_at: updatedPaymentMethod.created_at,

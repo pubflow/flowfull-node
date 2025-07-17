@@ -55,6 +55,7 @@ export interface PaymentMethodTable {
   card_brand: string | null;
   is_default: boolean;
   billing_address_id: string | null;
+  alias: string | null; // User-friendly name for the payment method
   is_guest: boolean;
   guest_email: string | null;
   guest_name: string | null;
@@ -124,6 +125,7 @@ export interface AddressTable {
   country: string;
   phone: string | null;
   email: string | null;
+  alias: string | null; // User-friendly name for the address
   is_guest: boolean;
   guest_email: string | null;
   guest_name: string | null;

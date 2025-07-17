@@ -17,6 +17,7 @@ export interface Address {
   country: string;
   phone: string | null;
   email: string | null;
+  alias: string | null; // User-friendly name for the address
   is_guest: boolean;
   guest_email: string | null;
   guest_name: string | null;
@@ -61,6 +62,7 @@ export interface UpdateAddressData {
 
 export interface AddressFilters {
   address_type?: string;
+  search?: string; // Search by alias, name, city, line1
   limit?: number;
   offset?: number;
 }
@@ -89,6 +91,20 @@ export class AddressRepository {
       query = query.where('address_type', '=', filters.address_type as any);
     }
 
+    // Add search functionality
+    if (filters.search) {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      query = query.where((eb) =>
+        eb.or([
+          eb('alias', 'like', searchTerm),
+          eb('name', 'like', searchTerm),
+          eb('city', 'like', searchTerm),
+          eb('line1', 'like', searchTerm),
+          eb('country', 'like', searchTerm)
+        ])
+      );
+    }
+
     if (filters.limit) {
       query = query.limit(filters.limit);
     }
@@ -112,6 +128,20 @@ export class AddressRepository {
 
     if (filters.address_type) {
       query = query.where('address_type', '=', filters.address_type as any);
+    }
+
+    // Add search functionality
+    if (filters.search) {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      query = query.where((eb) =>
+        eb.or([
+          eb('alias', 'like', searchTerm),
+          eb('name', 'like', searchTerm),
+          eb('city', 'like', searchTerm),
+          eb('line1', 'like', searchTerm),
+          eb('country', 'like', searchTerm)
+        ])
+      );
     }
 
     if (filters.limit) {
@@ -139,6 +169,20 @@ export class AddressRepository {
       query = query.where('address_type', '=', filters.address_type as any);
     }
 
+    // Add search functionality
+    if (filters.search) {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      query = query.where((eb) =>
+        eb.or([
+          eb('alias', 'like', searchTerm),
+          eb('name', 'like', searchTerm),
+          eb('city', 'like', searchTerm),
+          eb('line1', 'like', searchTerm),
+          eb('country', 'like', searchTerm)
+        ])
+      );
+    }
+
     const result = await query.executeTakeFirst();
     return result?.count || 0;
   }
@@ -152,6 +196,20 @@ export class AddressRepository {
 
     if (filters.address_type) {
       query = query.where('address_type', '=', filters.address_type as any);
+    }
+
+    // Add search functionality
+    if (filters.search) {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      query = query.where((eb) =>
+        eb.or([
+          eb('alias', 'like', searchTerm),
+          eb('name', 'like', searchTerm),
+          eb('city', 'like', searchTerm),
+          eb('line1', 'like', searchTerm),
+          eb('country', 'like', searchTerm)
+        ])
+      );
     }
 
     const result = await query.executeTakeFirst();

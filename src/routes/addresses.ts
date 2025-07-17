@@ -20,6 +20,7 @@ const createAddressSchema = z.object({
   country: z.string().length(2, 'Country must be a 2-letter ISO code'),
   phone: z.string().optional(),
   email: z.string().email().optional(),
+  alias: z.string().optional(), // User-friendly name for the address
   is_default: z.boolean().optional().default(false),
   // Guest fields
   guest_email: z.string().email().optional(),
@@ -47,7 +48,7 @@ addresses.get('/', optionalAuth(), async (c) => {
     const { orderBy, orderDir } = validateOrderParams(
       c.req.query('orderBy'),
       c.req.query('orderDir'),
-      ['created_at', 'name', 'city', 'country']
+      ['created_at', 'name', 'city', 'country', 'alias']
     );
 
     console.log(`🏠 Addresses list requested by: ${user ? `${user.id} (${user.userType})` : 'anonymous'} ${token ? `with token: ${token.substring(0, 8)}...` : ''}`);
@@ -65,10 +66,11 @@ addresses.get('/', optionalAuth(), async (c) => {
 
         userAddresses = await addressRepo.findGuestsByEmail(user.email, {
           address_type,
+          search,
           limit,
           offset: (page - 1) * limit
         });
-        total = await addressRepo.countGuestsByEmail(user.email, { address_type });
+        total = await addressRepo.countGuestsByEmail(user.email, { address_type, search });
 
         console.log(`✅ Found ${userAddresses.length} guest addresses for email: ${user.email} (total: ${total})`);
       } else {
@@ -77,10 +79,11 @@ addresses.get('/', optionalAuth(), async (c) => {
 
         userAddresses = await addressRepo.findByUserId(user.id, {
           address_type,
+          search,
           limit,
           offset: (page - 1) * limit
         });
-        total = await addressRepo.countByUserId(user.id, { address_type });
+        total = await addressRepo.countByUserId(user.id, { address_type, search });
 
         console.log(`✅ Found ${userAddresses.length} user addresses for user_id: ${user.id} (total: ${total})`);
       }
@@ -98,6 +101,7 @@ addresses.get('/', optionalAuth(), async (c) => {
         country: addr.country,
         phone: addr.phone,
         email: addr.email,
+        alias: addr.alias, // ✅ Include alias field
         is_default: addr.is_default,
         is_guest: addr.is_guest,
         created_at: addr.created_at,
@@ -145,10 +149,11 @@ addresses.get('/', optionalAuth(), async (c) => {
           // Search addresses by guest email
           const guestAddresses = await addressRepo.findGuestsByEmail(guestEmail, {
             address_type,
+            search,
             limit,
             offset: (page - 1) * limit
           });
-          const total = await addressRepo.countGuestsByEmail(guestEmail, { address_type });
+          const total = await addressRepo.countGuestsByEmail(guestEmail, { address_type, search });
 
           console.log(`✅ Found ${guestAddresses.length} addresses for guest email: ${guestEmail} (total: ${total})`);
 
@@ -164,6 +169,7 @@ addresses.get('/', optionalAuth(), async (c) => {
             country: addr.country,
             phone: addr.phone,
             email: addr.email,
+            alias: addr.alias, // ✅ Include alias field
             is_default: addr.is_default,
             is_guest: addr.is_guest,
             guest_email: addr.guest_email,
@@ -281,6 +287,7 @@ addresses.get('/:id', optionalAuth(), async (c) => {
         country: address.country,
         phone: address.phone,
         email: address.email,
+        alias: address.alias, // ✅ Include alias field
         is_default: address.is_default,
         is_guest: address.is_guest,
         created_at: address.created_at,
@@ -352,6 +359,7 @@ addresses.get('/:id', optionalAuth(), async (c) => {
             country: address.country,
             phone: address.phone,
             email: address.email,
+            alias: address.alias, // ✅ Include alias field
             is_default: address.is_default,
             is_guest: address.is_guest,
             guest_email: address.guest_email,

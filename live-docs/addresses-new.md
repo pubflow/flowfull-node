@@ -37,6 +37,49 @@ https://your-domain.com/bridge-payment/addresses
 
 ---
 
+## Address Aliases (NEW)
+
+The Addresses API now supports custom aliases for addresses through a dedicated `alias` field, making it easier for users to identify and manage their saved addresses.
+
+### How Address Aliases Work
+
+1. **Direct Field Storage**: Aliases are stored in the `alias` field for optimal performance and querying
+2. **User-Friendly Names**: Users can assign meaningful names like "Home", "Office", "Mom's house", "Vacation home"
+3. **Optional Feature**: Aliases are completely optional and don't affect address functionality
+4. **Flexible Organization**: Helps users organize multiple addresses by purpose or location
+5. **Search and Filter**: Aliases can be used for searching and filtering addresses
+
+### Alias Examples
+
+#### Common Alias Patterns
+- **Residential**: "Home", "Primary residence", "Apartment"
+- **Business**: "Office", "Headquarters", "Branch office"
+- **Family**: "Mom's house", "Dad's place", "Sister's apartment"
+- **Temporary**: "Hotel", "Vacation rental", "Temporary address"
+
+#### Usage in Requests
+```json
+{
+  "alias": "Home Address",
+  "address_type": "both",
+  "name": "John Doe",
+  "line1": "123 Main Street",
+  "city": "New York",
+  "state": "NY",
+  "postal_code": "10001",
+  "country": "US"
+}
+```
+
+### Benefits
+
+- **Better UX**: Users can easily identify their addresses
+- **Organization**: Categorize addresses by purpose (home, work, family)
+- **Personalization**: Users can use names that make sense to them
+- **Quick Selection**: Faster address selection during checkout
+
+---
+
 ## Guest Token Authentication System
 
 For guest users who need to access their addresses after checkout, the API supports token-based authentication. This allows guests to view and manage their address information without creating a full account.
@@ -190,6 +233,7 @@ Content-Type: application/json
       "country": "US",
       "phone": "+1-555-123-4567",
       "email": "john@example.com",
+      "alias": "Home Address",
       "is_default": true,
       "is_guest": true,
       "guest_email": "guest@example.com",
@@ -404,6 +448,7 @@ Content-Type: application/json
     "country": "US",
     "phone": "+1-555-123-4567",
     "email": "john@example.com",
+    "alias": "Home Address",
     "is_default": true,
     "is_guest": true,
     "guest_email": "guest@example.com",
@@ -504,6 +549,7 @@ Content-Type: application/json
 | `country` | string | Yes | Country code (ISO 3166-1 alpha-2) |
 | `phone` | string | No | Phone number |
 | `email` | string | No | Email address |
+| `alias` | string | No | **NEW**: User-friendly name for the address (e.g., "Home", "Office") |
 | `is_default` | boolean | No | Set as default address (default: false) |
 | `guest_email` | string | No* | Guest email (*required for guest users) |
 | `guest_name` | string | No | Guest name for guest users |
@@ -531,6 +577,7 @@ Content-Type: application/json
   "country": "US",
   "phone": "+1-555-123-4567",
   "email": "john@example.com",
+  "alias": "Home Address",
   "is_guest": false,
   "guest_email": null,
   "guest_name": null,
@@ -557,6 +604,7 @@ curl -X POST "https://api.example.com/bridge-payment/addresses" \
     "country": "US",
     "phone": "+1-555-123-4567",
     "email": "john@example.com",
+    "alias": "Home Address",
     "is_default": true
   }'
 ```
@@ -573,6 +621,7 @@ curl -X POST "https://api.example.com/bridge-payment/addresses" \
     "state": "CA",
     "postal_code": "90210",
     "country": "US",
+    "alias": "Vacation Home",
     "guest_email": "guest@example.com",
     "guest_name": "Guest User",
     "is_default": false
@@ -645,6 +694,7 @@ All fields from create address are supported. Only provided fields will be updat
 | `country` | string | No | Country code |
 | `phone` | string | No | Phone number |
 | `email` | string | No | Email address |
+| `alias` | string | No | **NEW**: User-friendly name for the address (e.g., "Home", "Office") |
 | `is_default` | boolean | No | Set as default address |
 
 ### Response
@@ -670,6 +720,7 @@ Content-Type: application/json
   "country": "US",
   "phone": "+1-555-123-4567",
   "email": "john.updated@example.com",
+  "alias": "Home Address",
   "is_guest": false,
   "guest_email": null,
   "guest_name": null,
@@ -709,6 +760,26 @@ curl -X PUT "https://api.example.com/bridge-payment/addresses/addr_1234567890" \
   -H "Content-Type: application/json" \
   -d '{
     "is_default": true
+  }'
+```
+
+#### Update Address Alias
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/addresses/addr_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alias": "Home Address"
+  }'
+```
+
+#### Update Address Nickname
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/addresses/addr_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nickname": "Home Address"
   }'
 ```
 
@@ -1097,6 +1168,7 @@ CREATE TABLE addresses (
   country TEXT NOT NULL,
   phone TEXT,
   email TEXT,
+  alias TEXT, -- User-friendly name for the address
   is_guest BOOLEAN DEFAULT FALSE,
   guest_email TEXT,
   guest_name TEXT,
@@ -1112,6 +1184,7 @@ CREATE TABLE addresses (
 CREATE INDEX idx_addresses_user_id ON addresses(user_id);
 CREATE INDEX idx_addresses_guest_email ON addresses(guest_email);
 CREATE INDEX idx_addresses_type ON addresses(address_type);
+CREATE INDEX idx_addresses_alias ON addresses(alias);
 CREATE INDEX idx_addresses_created_at ON addresses(created_at);
 CREATE INDEX idx_addresses_is_guest ON addresses(is_guest);
 CREATE INDEX idx_addresses_composite_guest ON addresses(guest_email, is_guest, address_type);

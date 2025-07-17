@@ -108,37 +108,37 @@ When a payment method is associated with a billing address, the response include
 
 - `billing_address_id`: UUID of the associated billing address
 - `guest_name`: Name from guest payment methods (for guest users)
-- `metadata`: Custom metadata including optional `nickname` for card aliases
+- `alias`: Direct field for user-friendly payment method names
+- `metadata`: Custom metadata for additional categorization and notes
 
 ---
 
-## Card Nicknames and Aliases (NEW)
+## Card Aliases and Nicknames (NEW)
 
-The Payment Methods API supports custom nicknames and aliases for payment methods through the `metadata` field, making it easier for users to identify and manage their saved cards.
+The Payment Methods API supports custom aliases and nicknames for payment methods through a dedicated `alias` field, making it easier for users to identify and manage their saved cards.
 
-### How Card Nicknames Work
+### How Card Aliases Work
 
-1. **Metadata Storage**: Nicknames are stored in the `metadata.nickname` field
+1. **Direct Field Storage**: Aliases are stored in the `alias` field for optimal performance and querying
 2. **User-Friendly Names**: Users can assign meaningful names like "My primary card", "Travel card", "Business expenses"
-3. **Optional Feature**: Nicknames are completely optional and don't affect payment processing
-4. **Flexible Metadata**: The `metadata` field supports additional custom properties for categorization
+3. **Optional Feature**: Aliases are completely optional and don't affect payment processing
+4. **Backward Compatibility**: The `metadata.nickname` field is still supported for existing integrations
+5. **Flexible Metadata**: The `metadata` field supports additional custom properties for categorization
 
-### Nickname Examples
+### Alias Examples
 
-#### Common Nickname Patterns
+#### Direct Alias Field (Recommended)
 ```json
 {
-  "metadata": {
-    "nickname": "My primary card"
-  }
+  "alias": "My primary card"
 }
 ```
 
-#### Advanced Metadata Usage
+#### Advanced Usage with Metadata
 ```json
 {
+  "alias": "Business Travel Card",
   "metadata": {
-    "nickname": "Business Travel Card",
     "category": "business",
     "department": "sales",
     "notes": "For client meetings and travel expenses",
@@ -147,20 +147,43 @@ The Payment Methods API supports custom nicknames and aliases for payment method
 }
 ```
 
+#### Legacy Metadata Support (Still Supported)
+```json
+{
+  "metadata": {
+    "nickname": "My primary card",
+    "category": "business"
+  }
+}
+```
+
 ### Frontend Integration
 
-#### Display Nicknames in UI
+#### Display Aliases in UI
 ```javascript
-// Display payment method with nickname
-const displayName = paymentMethod.metadata?.nickname ||
+// Display payment method with alias (preferred method)
+const displayName = paymentMethod.alias ||
+  paymentMethod.metadata?.nickname ||
   `${paymentMethod.card_brand} •••• ${paymentMethod.last_four}`;
 
 // Example: "My primary card" or "Visa •••• 4242"
 ```
 
-#### Update Nicknames
+#### Update Aliases
 ```javascript
-// Update payment method nickname
+// Update payment method alias (preferred method)
+await fetch(`/bridge-payment/payment-methods/${paymentMethodId}`, {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${sessionId}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    alias: "Updated card name"
+  })
+});
+
+// Legacy method (still supported)
 await fetch(`/bridge-payment/payment-methods/${paymentMethodId}`, {
   method: 'PUT',
   headers: {
@@ -298,13 +321,13 @@ Content-Type: application/json
       "last_four": "4242",
       "expiry_month": "12",
       "expiry_year": "2025",
+      "alias": "My primary card",
       "is_default": true,
       "is_guest": true,
       "guest_email": "guest@example.com",
       "guest_name": "John Doe",
       "billing_address_id": "addr_billing_123",
       "metadata": {
-        "nickname": "My primary card",
         "category": "business"
       },
       "created_at": "2025-01-15T10:30:00Z",
@@ -413,6 +436,7 @@ Content-Type: application/json
     "last_four": "4242",
     "expiry_month": "12",
     "expiry_year": "2025",
+    "alias": "My primary card",
     "is_default": true,
     "is_guest": true,
     "guest_email": "guest@example.com",
@@ -495,6 +519,7 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `alias` | string | No | User-friendly name for the payment method |
 | `is_default` | boolean | No | Set as default payment method |
 | `billing_address_id` | string | No | UUID of billing address to associate |
 | `metadata` | object | No | Custom metadata key-value pairs |
@@ -519,6 +544,7 @@ Content-Type: application/json
     "last_four": "4242",
     "expiry_month": "12",
     "expiry_year": "2025",
+    "alias": "My primary card",
     "is_default": true,
     "is_guest": true,
     "guest_email": "guest@example.com",
@@ -565,14 +591,24 @@ curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_123456789
   }'
 ```
 
+#### Update Alias
+```bash
+curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
+  -H "Authorization: Bearer your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alias": "My primary card"
+  }'
+```
+
 #### Update Metadata
 ```bash
 curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_1234567890" \
   -H "Authorization: Bearer your_token_here" \
   -H "Content-Type: application/json" \
   -d '{
+    "alias": "My primary card",
     "metadata": {
-      "nickname": "My primary card",
       "category": "business",
       "notes": "Company credit card"
     }
@@ -584,10 +620,8 @@ curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_123456789
 curl -X PUT "https://api.example.com/bridge-payment/payment-methods/pm_guest_123?token=guest_token_here" \
   -H "Content-Type: application/json" \
   -d '{
-    "is_default": true,
-    "metadata": {
-      "nickname": "Guest checkout card"
-    }
+    "alias": "Guest checkout card",
+    "is_default": true
   }'
 ```
 
@@ -694,14 +728,15 @@ Content-Type: application/json
 | `type` | string | Yes | Payment method type: `credit_card`, `bank_account`, `paypal` |
 | `provider_id` | string | Yes | Payment provider (e.g., "stripe") |
 | `payment_method_token` | string | Yes | Secure token from frontend |
-| `billing_address_id` | string | No | **NEW**: UUID of existing billing address to associate |
+| `alias` | string | No | **NEW**: User-friendly name for the payment method |
+| `billing_address_id` | string | No | UUID of existing billing address to associate |
 | `billing_details` | object | No | Billing information (merged with address if `billing_address_id` provided) |
 | `billing_details.name` | string | Yes | Cardholder name |
 | `billing_details.email` | string | Yes | Email address |
 | `billing_details.phone` | string | No | Phone number |
 | `billing_details.address` | object | No | Billing address (optional if using `billing_address_id`) |
 | `save_for_future` | boolean | No | Save for future use (default: false) |
-| `metadata` | object | No | Additional metadata (supports `nickname` for card aliases) |
+| `metadata` | object | No | Additional metadata for categorization and notes |
 
 ### Response
 
@@ -719,13 +754,13 @@ Content-Type: application/json
   "last_four": "4242",
   "expiry_month": "12",
   "expiry_year": "2025",
+  "alias": "My primary business card",
   "is_default": false,
   "is_guest": true,
   "guest_email": "customer@example.com",
   "guest_name": "John Doe",
   "billing_address_id": "addr_billing_123",
   "metadata": {
-    "nickname": "My primary business card",
     "category": "business"
   },
   "created_at": "2025-01-15T10:30:00Z"
@@ -744,6 +779,7 @@ curl -X POST "https://api.example.com/bridge-payment/payment-methods" \
     "type": "credit_card",
     "provider_id": "stripe",
     "payment_method_token": "pm_card_visa",
+    "alias": "My primary card",
     "billing_details": {
       "name": "John Doe",
       "email": "john@example.com",
