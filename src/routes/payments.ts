@@ -1796,6 +1796,7 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         description: payment.description,
         provider_id: payment.provider_id,
         provider_payment_id: payment.provider_payment_id,
+        provider_intent_id: payment.provider_intent_id, // ✅ Include for payment continuation
         // Enhanced tracking fields
         concept: payment.concept,
         reference_code: payment.reference_code, // ✅ Include reference_code
@@ -1820,8 +1821,8 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
           guest_data: payment.guest_data,
           user_id: payment.user_id,
           payment_method_id: payment.payment_method_id,
-          provider_intent_id: payment.provider_intent_id,
           error_message: payment.error_message
+          // provider_intent_id removed - already included above for all users
         })
       };
 
