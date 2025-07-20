@@ -1797,6 +1797,10 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         provider_id: payment.provider_id,
         provider_payment_id: payment.provider_payment_id,
         provider_intent_id: payment.provider_intent_id, // ✅ Include for payment continuation
+        // Include client_secret for payment owners (needed for payment continuation)
+        ...(payment.user_id === user?.id && {
+          client_secret: payment.client_secret
+        }),
         // Enhanced tracking fields
         concept: payment.concept,
         reference_code: payment.reference_code, // ✅ Include reference_code
@@ -1817,14 +1821,23 @@ payments.get('/payments/:id', optionalAuth(), async (c) => {
         ...(parsedMetadata && { metadata: parsedMetadata }),
         // Include sensitive data only for admin
         ...(user.userType === 'admin' && {
-          client_secret: payment.client_secret,
           guest_data: payment.guest_data,
           user_id: payment.user_id,
           payment_method_id: payment.payment_method_id,
           error_message: payment.error_message
-          // provider_intent_id removed - already included above for all users
+          // client_secret and provider_intent_id already included above for all owners
         })
       };
+
+      // Debug log for client_secret inclusion
+      console.log('🔑 Payment response debug:', {
+        paymentId: payment.id,
+        userId: user?.id,
+        isOwner: payment.user_id === user?.id,
+        hasClientSecret: !!paymentData.client_secret,
+        hasProviderIntentId: !!paymentData.provider_intent_id,
+        userType: user?.userType
+      });
 
       // Use new standard response format
       return c.json(formatResponse(
