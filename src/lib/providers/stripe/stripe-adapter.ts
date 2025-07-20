@@ -701,8 +701,22 @@ export class StripeAdapter extends PaymentAdapter {
   }
 
   private mapStripePaymentMethodType(type: string, pm?: Stripe.PaymentMethod): PaymentMethodType {
-    // Always map card type as CREDIT_CARD, even for wallet payments
-    // Wallet information will be stored separately in wallet_type field
+    // For card types, detect funding type from Stripe
+    if (type === 'card' && pm?.card?.funding) {
+      switch (pm.card.funding) {
+        case 'debit':
+          return PaymentMethodType.DEBIT_CARD;
+        case 'credit':
+          return PaymentMethodType.CREDIT_CARD;
+        case 'prepaid':
+          return PaymentMethodType.CREDIT_CARD; // Treat prepaid as credit
+        case 'unknown':
+        default:
+          return PaymentMethodType.CREDIT_CARD; // Default fallback
+      }
+    }
+
+    // For non-card types or when funding info is not available
     const typeMap: Record<string, PaymentMethodType> = {
       'card': PaymentMethodType.CREDIT_CARD,
       'us_bank_account': PaymentMethodType.BANK_ACCOUNT,
