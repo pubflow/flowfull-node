@@ -15,5 +15,6 @@
   "subscription_reactivated": "🎉 Subscripción Reactivada - {{client_name}}",
   "subscription_refunded": "💰 Reembolso de Subscripción Procesado - {{client_name}}",
   "invoice_created": "📄 Nueva Factura - {{invoice_id}}",
-  "invoice_paid": "✅ Factura Pagada - {{invoice_id}}"
+  "invoice_paid": "✅ Factura Pagada - {{invoice_id}}",
+  "admin_transaction_notification": "Nueva Transacción - {{amount}} {{currency}} - {{transaction_id}}"
 }

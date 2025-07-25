@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Transaction Notification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8fafc;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px 20px;
+        }
+        
+        .alert-box {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .alert-box h2 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        .alert-box p {
+            font-size: 18px;
+            font-weight: 500;
+        }
+        
+        .details-section {
+            margin-bottom: 30px;
+        }
+        
+        .section-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e74c3c;
+        }
+        
+        .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .detail-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #e74c3c;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        
+        .detail-value {
+            color: #34495e;
+            font-size: 16px;
+            word-break: break-all;
+        }
+        
+        .amount-highlight {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .amount-highlight .amount {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        
+        .amount-highlight .currency {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .metadata-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .metadata-content {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #2c3e50;
+            white-space: pre-wrap;
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .action-buttons {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 0 10px;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .footer {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .footer p {
+            margin-bottom: 10px;
+        }
+        
+        .timestamp {
+            color: #95a5a6;
+            font-size: 12px;
+            margin-top: 15px;
+        }
+        
+        @media (max-width: 600px) {
+            .details-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .amount-highlight .amount {
+                font-size: 24px;
+            }
+            
+            .btn {
+                display: block;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🔔 Admin Notification</h1>
+            <p>New transaction received</p>
+        </div>
+        
+        <!-- Content -->
+        <div class="content">
+            <!-- Alert Box -->
+            <div class="alert-box">
+                <h2>New Transaction Processed</h2>
+                <p>Transaction ID: {{transaction_id}}</p>
+            </div>
+            
+            <!-- Amount Highlight -->
+            <div class="amount-highlight">
+                <div class="amount">{{amount}}</div>
+                <div class="currency">{{currency}}</div>
+            </div>
+            
+            <!-- Transaction Details -->
+            <div class="details-section">
+                <h3 class="section-title">Transaction Details</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Transaction ID</div>
+                        <div class="detail-value">{{transaction_id}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Amount</div>
+                        <div class="detail-value">{{amount}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Status</div>
+                        <div class="detail-value">{{status}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Provider</div>
+                        <div class="detail-value">{{provider_id}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Reference Code</div>
+                        <div class="detail-value">{{reference_code}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Concept</div>
+                        <div class="detail-value">{{concept}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Date & Time</div>
+                        <div class="detail-value">{{transaction_date}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Provider Payment ID</div>
+                        <div class="detail-value">{{provider_payment_id}}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Customer Information -->
+            <div class="details-section">
+                <h3 class="section-title">Customer Information</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Name</div>
+                        <div class="detail-value">{{customer_name}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Email</div>
+                        <div class="detail-value">{{customer_email}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Phone</div>
+                        <div class="detail-value">{{customer_phone}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">User Type</div>
+                        <div class="detail-value">{{user_type}}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Payment Method -->
+            <div class="details-section">
+                <h3 class="section-title">Payment Method</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Type</div>
+                        <div class="detail-value">{{payment_method_type}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Details</div>
+                        <div class="detail-value">{{payment_method}}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Technical Details -->
+            <div class="details-section">
+                <h3 class="section-title">Technical Information</h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">IP Address</div>
+                        <div class="detail-value">{{ip_address}}</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">User Agent</div>
+                        <div class="detail-value">{{user_agent}}</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Metadata -->
+            <div class="metadata-section">
+                <h3 class="section-title">Metadata</h3>
+                <div class="metadata-content">{{metadata}}</div>
+            </div>
+            
+            <!-- Action Buttons -->
+            {{dashboard_section}}
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>{{organization_name}}</strong></p>
+            <p>{{organization_email}}</p>
+            <div class="timestamp">
+                Generated on {{current_date}} at {{current_time}}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -347,4 +347,31 @@ admin.get('/health', async (c) => {
   }
 });
 
+// Test admin notification system (admin only)
+admin.post('/test-admin-notification', async (c) => {
+  try {
+    const user = c.get('user');
+    console.log(`🧪 Testing admin notification system by admin: ${user?.id}`);
+
+    const { adminNotificationService } = await import('@/lib/email/admin-notification-service');
+
+    const result = await adminNotificationService.testAdminNotification();
+
+    return c.json({
+      success: result.success,
+      message: result.message,
+      recipients: result.recipients,
+      tested_by: user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[Admin] Error testing admin notification:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
 export default admin;

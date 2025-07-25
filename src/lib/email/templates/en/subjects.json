@@ -14,5 +14,6 @@
   "subscription_updated": "📝 Subscription Updated - {{client_name}}",
   "subscription_reactivated": "🎉 Subscription Reactivated - {{client_name}}",
   "invoice_created": "📄 New Invoice - {{invoice_id}}",
-  "invoice_paid": "✅ Invoice Paid - {{invoice_id}}"
+  "invoice_paid": "✅ Invoice Paid - {{invoice_id}}",
+  "admin_transaction_notification": "New Transaction - {{amount}} {{currency}} - {{transaction_id}}"
 }

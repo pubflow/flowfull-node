@@ -7,9 +7,11 @@ Bridge-Payments includes a comprehensive email system for sending transaction re
 ## Features
 
 - ✅ **Universal Transaction Receipts** - Works for all payment types
+- ✅ **Admin Notifications** - Automatic notifications to administrators
 - ✅ **i18n Support** - Spanish and English templates
 - ✅ **ZeptoMail Integration** - Professional email delivery
 - ✅ **Automatic Webhook Triggers** - Sends receipts on successful payments
+- ✅ **Multiple Recipients** - Support for comma-separated admin emails
 - ✅ **Responsive Templates** - Mobile-friendly email design
 - ✅ **Template Variables** - Dynamic content replacement
 - ✅ **Error Handling** - Graceful fallbacks and retry logic
@@ -18,15 +20,18 @@ Bridge-Payments includes a comprehensive email system for sending transaction re
 
 ```
 src/lib/email/
-├── email-service.ts          # ZeptoMail API integration
-├── template-service.ts       # Template loading and i18n
-├── receipt-service.ts        # Transaction receipt logic
+├── email-service.ts                    # ZeptoMail API integration
+├── template-service.ts                 # Template loading and i18n
+├── receipt-service.ts                  # Transaction receipt logic
+├── admin-notification-service.ts       # Admin notifications
 └── templates/
     ├── es/
     │   ├── transaction_receipt.html
+    │   ├── admin_transaction_notification.html
     │   └── subjects.json
     └── en/
         ├── transaction_receipt.html
+        ├── admin_transaction_notification.html
         └── subjects.json
 ```
 
@@ -62,6 +67,8 @@ TEST_EMAIL=test@yourdomain.com
 1. **ZEPTOMAIL_API_KEY** - Your ZeptoMail API key
 2. **EMAIL_FROM_ADDRESS** - Sender email address
 3. **ORGANIZATION_NAME** - Organization name for templates
+4. **ADMIN_RECEIPT_EMAIL** - Comma-separated admin emails for notifications
+5. **ADMIN_EMAIL_ENABLED** - Enable/disable admin notifications (true/false)
 
 ## Usage
 
@@ -103,6 +110,99 @@ const result = await receiptService.sendCustomReceipt(
   { custom_message: 'Thank you for your donation!' },
   'transaction_receipt'
 );
+```
+
+## Admin Notifications
+
+### Automatic Admin Notifications
+
+Admin notifications are automatically sent to configured administrators when transactions succeed:
+
+```typescript
+// Automatically triggered by webhook processor
+// No manual intervention required
+```
+
+### Configuration
+
+```env
+# Admin Email Notifications
+ADMIN_EMAIL_ENABLED=true
+ADMIN_RECEIPT_EMAIL=admin@yourdomain.com,finance@yourdomain.com
+ADMIN_EMAIL_TEMPLATE=admin_transaction_notification
+ADMIN_EMAIL_SUBJECT_PREFIX=[TRANSACTION]
+ADMIN_DASHBOARD_URL=https://admin.yourdomain.com/dashboard  # Optional - omit to hide dashboard button
+```
+
+### Dashboard Button Behavior
+
+The dashboard button in admin emails is **conditional**:
+
+- **If `ADMIN_DASHBOARD_URL` is configured**: Shows "View in Dashboard" button
+- **If `ADMIN_DASHBOARD_URL` is empty or `#`**: No button is shown
+- **If variable is not set**: No button is shown
+
+```env
+# Show dashboard button
+ADMIN_DASHBOARD_URL=https://admin.yourdomain.com/dashboard
+
+# Hide dashboard button (any of these)
+ADMIN_DASHBOARD_URL=
+# ADMIN_DASHBOARD_URL=#
+# ADMIN_DASHBOARD_URL not set
+```
+
+### Manual Admin Notifications
+
+```typescript
+import { adminNotificationService } from '@/lib/email/admin-notification-service';
+
+const transactionData = {
+  transaction_id: 'pay_123',
+  amount_cents: 2500,
+  currency: 'USD',
+  status: 'succeeded',
+  concept: 'Payment',
+  reference_code: 'PAY_001',
+  customer_email: 'customer@example.com',
+  customer_name: 'John Doe',
+  user_type: 'registered',
+  provider_id: 'stripe',
+  created_at: new Date().toISOString()
+};
+
+const result = await adminNotificationService.sendTransactionNotification(transactionData);
+```
+
+### Testing Admin Notifications
+
+```typescript
+// Test admin notification system
+const result = await adminNotificationService.testAdminNotification();
+console.log(`Test sent to ${result.recipients} recipients`);
+```
+
+### API Endpoints
+
+```bash
+# Test admin notifications (admin only)
+POST /admin/test-admin-notification
+
+# Test via test-email route (includes dashboard config info)
+GET /test-email/admin-notification
+```
+
+### Response Example
+
+```json
+{
+  "success": true,
+  "message": "Admin notification sent successfully",
+  "recipients": 2,
+  "dashboard_configured": true,
+  "dashboard_url": "https://admin.yourdomain.com/dashboard",
+  "timestamp": "2024-01-15T10:30:00Z"
+}
 ```
 
 ## Template Variables

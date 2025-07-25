@@ -5,6 +5,7 @@ import { getDatabase } from '@/lib/database/connection';
 import { nanoid } from 'nanoid';
 import { receiptService } from '@/lib/email/receipt-service';
 import { subscriptionEmailService } from '@/lib/email/subscription-email-service';
+import { adminNotificationService } from '@/lib/email/admin-notification-service';
 import { getSubscriptionRepository } from '@/lib/database/repositories/subscriptions';
 import { getCustomerRepository } from '@/lib/database/repositories/customers';
 import { Logger } from '@/lib/utils/logger';
@@ -135,7 +136,17 @@ export class WebhookEventProcessor {
         // Get updated payment data for email
         const updatedPayment = await paymentRepo.findById(payment.id);
         if (updatedPayment) {
-          await receiptService.sendTransactionReceipt(updatedPayment);
+          // Convert payment object to TransactionData format
+          const transactionData = this.convertPaymentToTransactionData(updatedPayment);
+          await receiptService.sendTransactionReceipt(transactionData);
+
+          // Send admin notification for successful transaction
+          try {
+            await this.sendAdminNotification(updatedPayment);
+          } catch (adminEmailError) {
+            console.error(`[WebhookProcessor] Failed to send admin notification for payment ${payment.id}:`, adminEmailError);
+            // Don't fail the webhook processing if admin email fails
+          }
         }
       } catch (emailError) {
         console.error(`[WebhookProcessor] Failed to send receipt for payment ${payment.id}:`, emailError);
@@ -443,7 +454,17 @@ export class WebhookEventProcessor {
           try {
             const updatedPayment = await paymentRepo.findById(payment.id);
             if (updatedPayment) {
-              await receiptService.sendTransactionReceipt(updatedPayment);
+              // Convert payment object to TransactionData format
+              const transactionData = this.convertPaymentToTransactionData(updatedPayment);
+              await receiptService.sendTransactionReceipt(transactionData);
+
+              // Send admin notification for successful PayPal transaction
+              try {
+                await this.sendAdminNotification(updatedPayment);
+              } catch (adminEmailError) {
+                console.error(`[WebhookProcessor] Failed to send admin notification for PayPal payment ${payment.id}:`, adminEmailError);
+                // Don't fail the webhook processing if admin email fails
+              }
             }
           } catch (emailError) {
             console.error(`[WebhookProcessor] Failed to send PayPal receipt for payment ${payment.id}:`, emailError);
@@ -584,6 +605,68 @@ export class WebhookEventProcessor {
       message,
       updated_entities: [`subscription:${localSubscription.id}`]
     };
+  }
+
+  /**
+   * Convert payment object to TransactionData format
+   */
+  private convertPaymentToTransactionData(payment: any): any {
+    return {
+      id: payment.id,
+      amount_cents: payment.amount_cents,
+      currency: payment.currency,
+      status: payment.status,
+      description: payment.description || undefined,
+      concept: payment.concept || undefined,
+      reference_code: payment.reference_code || undefined,
+      provider_id: payment.provider_id,
+      provider_payment_id: payment.provider_payment_id || undefined,
+      provider_intent_id: payment.provider_intent_id || undefined,
+      customer_email: payment.customer_email || undefined,
+      customer_name: payment.customer_name || undefined,
+      guest_email: payment.guest_email || undefined,
+      guest_name: payment.guest_name || undefined,
+      created_at: payment.created_at,
+      updated_at: payment.updated_at || undefined,
+      metadata: payment.metadata ? JSON.parse(payment.metadata) : undefined
+    };
+  }
+
+  /**
+   * Send admin notification for successful transaction
+   */
+  private async sendAdminNotification(payment: any): Promise<void> {
+    try {
+      // Build admin notification data from payment
+      const adminNotificationData = {
+        transaction_id: payment.id,
+        amount_cents: payment.amount_cents,
+        currency: payment.currency,
+        status: payment.status,
+        provider_id: payment.provider_id,
+        provider_payment_id: payment.provider_payment_id || undefined,
+        reference_code: payment.reference_code || undefined,
+        concept: payment.concept || payment.description || undefined,
+        description: payment.description || undefined,
+        customer_email: payment.customer_email || undefined,
+        customer_name: payment.customer_name || undefined,
+        customer_phone: payment.customer_phone || undefined,
+        user_type: payment.is_guest_payment ? 'guest' as const : 'registered' as const,
+        payment_method_type: payment.payment_method_type || undefined,
+        payment_method_last_four: payment.payment_method_last_four || undefined,
+        payment_method_brand: payment.payment_method_brand || undefined,
+        metadata: payment.metadata ? JSON.parse(payment.metadata) : undefined,
+        created_at: payment.created_at,
+        ip_address: payment.ip_address || undefined,
+        user_agent: payment.user_agent || undefined
+      };
+
+      await adminNotificationService.sendTransactionNotification(adminNotificationData);
+      Logger.info(`[WebhookProcessor] Admin notification sent for transaction ${payment.id}`);
+    } catch (error) {
+      Logger.error(`[WebhookProcessor] Failed to send admin notification for transaction ${payment.id}:`, error);
+      throw error; // Re-throw to be caught by caller
+    }
   }
 
   async processUnprocessedEvents(): Promise<void> {

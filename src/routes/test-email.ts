@@ -240,4 +240,36 @@ testEmailRoutes.get('/template-info', async (c) => {
   }
 });
 
+/**
+ * Test admin notification
+ * GET /test-email/admin-notification
+ */
+testEmailRoutes.get('/admin-notification', async (c) => {
+  try {
+    const { adminNotificationService } = await import('@/lib/email/admin-notification-service');
+
+    const result = await adminNotificationService.testAdminNotification();
+
+    // Check dashboard configuration for debugging
+    const dashboardUrl = process.env.ADMIN_DASHBOARD_URL;
+    const hasDashboard = dashboardUrl && dashboardUrl.trim() !== '' && dashboardUrl !== '#';
+
+    return c.json({
+      success: result.success,
+      message: result.message,
+      recipients: result.recipients,
+      dashboard_configured: hasDashboard,
+      dashboard_url: dashboardUrl || 'Not configured',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[TestEmail] Error testing admin notification:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
 export default testEmailRoutes;
