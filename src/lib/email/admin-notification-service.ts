@@ -133,21 +133,23 @@ export class AdminNotificationService {
    * Build template variables for admin notification
    */
   private buildAdminTemplateVariables(transaction: AdminNotificationData): Record<string, string> {
-    const formattedAmount = this.formatAmount(transaction.amount_cents, transaction.currency);
+    // Ensure amount_cents has a valid value
+    const amountCents = transaction.amount_cents || 0;
+    const formattedAmount = this.formatAmount(amountCents, transaction.currency);
     const transactionDate = new Date(transaction.created_at).toLocaleString();
-    
+
     // Get organization info from environment
     const organizationName = process.env.ORGANIZATION_NAME || 'Bridge Payments';
     const organizationEmail = process.env.ORGANIZATION_EMAIL || process.env.EMAIL_FROM_ADDRESS || '';
-    
+
     return {
       // Transaction details
-      transaction_id: transaction.transaction_id,
+      transaction_id: transaction.transaction_id || 'unknown',
       amount: formattedAmount,
-      amount_cents: transaction.amount_cents.toString(),
-      currency: transaction.currency.toUpperCase(),
-      status: transaction.status,
-      provider_id: transaction.provider_id,
+      amount_cents: amountCents.toString(),
+      currency: (transaction.currency || 'USD').toUpperCase(),
+      status: transaction.status || 'unknown',
+      provider_id: transaction.provider_id || 'unknown',
       provider_payment_id: transaction.provider_payment_id || 'N/A',
       reference_code: transaction.reference_code || 'N/A',
       concept: transaction.concept || 'Payment',

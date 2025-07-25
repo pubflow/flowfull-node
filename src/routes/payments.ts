@@ -20,13 +20,23 @@ import { adminNotificationService } from '@/lib/email/admin-notification-service
 // Helper function to send admin notification from payment data
 async function sendAdminNotificationFromPayment(payment: any): Promise<void> {
   try {
-    // Build admin notification data from payment
-    const adminNotificationData = {
-      transaction_id: payment.id,
+    // Debug: Log payment object structure
+    console.log('🔍 [DEBUG] Payment object for admin notification:', {
+      id: payment.id,
       amount_cents: payment.amount_cents,
       currency: payment.currency,
       status: payment.status,
       provider_id: payment.provider_id,
+      keys: Object.keys(payment)
+    });
+
+    // Build admin notification data from payment with proper validation
+    const adminNotificationData = {
+      transaction_id: payment.id || 'unknown',
+      amount_cents: payment.amount_cents || 0,
+      currency: payment.currency || 'USD',
+      status: payment.status || 'unknown',
+      provider_id: payment.provider_id || 'unknown',
       provider_payment_id: payment.provider_payment_id || undefined,
       reference_code: payment.reference_code || undefined,
       concept: payment.concept || payment.description || undefined,
@@ -38,8 +48,8 @@ async function sendAdminNotificationFromPayment(payment: any): Promise<void> {
       payment_method_type: payment.payment_method_type || undefined,
       payment_method_last_four: payment.payment_method_last_four || undefined,
       payment_method_brand: payment.payment_method_brand || undefined,
-      metadata: payment.metadata ? JSON.parse(payment.metadata) : undefined,
-      created_at: payment.created_at,
+      metadata: payment.metadata ? (typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata) : undefined,
+      created_at: payment.created_at || new Date().toISOString(),
       ip_address: payment.ip_address || undefined,
       user_agent: payment.user_agent || undefined
     };
