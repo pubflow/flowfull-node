@@ -374,4 +374,35 @@ admin.post('/test-admin-notification', async (c) => {
   }
 });
 
+// Check admin notification configuration (admin only)
+admin.get('/admin-notification-config', async (c) => {
+  try {
+    const user = c.get('user');
+    console.log(`🔍 Checking admin notification config by admin: ${user?.id}`);
+
+    const config = {
+      enabled: process.env.ADMIN_EMAIL_ENABLED === 'true',
+      recipients: process.env.ADMIN_RECEIPT_EMAIL || 'Not configured',
+      template: process.env.ADMIN_EMAIL_TEMPLATE || 'admin_transaction_notification',
+      subject_prefix: process.env.ADMIN_EMAIL_SUBJECT_PREFIX || '[TRANSACTION]',
+      dashboard_url: process.env.ADMIN_DASHBOARD_URL || 'Not configured',
+      language: process.env.GLOBAL_LANG || process.env.DEFAULT_LANGUAGE || 'en'
+    };
+
+    return c.json({
+      success: true,
+      config,
+      checked_by: user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[Admin] Error checking admin notification config:', error);
+    return c.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, 500);
+  }
+});
+
 export default admin;

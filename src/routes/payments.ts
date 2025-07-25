@@ -15,6 +15,42 @@ import { processIntelligentPricing, type PricingInput } from '@/lib/utils/pricin
 import { PaymentStatus } from '@/lib/database/types';
 import { PaymentIntentStatus } from '@/lib/providers/base/payment-adapter';
 import { receiptService } from '@/lib/email/receipt-service';
+import { adminNotificationService } from '@/lib/email/admin-notification-service';
+
+// Helper function to send admin notification from payment data
+async function sendAdminNotificationFromPayment(payment: any): Promise<void> {
+  try {
+    // Build admin notification data from payment
+    const adminNotificationData = {
+      transaction_id: payment.id,
+      amount_cents: payment.amount_cents,
+      currency: payment.currency,
+      status: payment.status,
+      provider_id: payment.provider_id,
+      provider_payment_id: payment.provider_payment_id || undefined,
+      reference_code: payment.reference_code || undefined,
+      concept: payment.concept || payment.description || undefined,
+      description: payment.description || undefined,
+      customer_email: payment.customer_email || undefined,
+      customer_name: payment.customer_name || undefined,
+      customer_phone: payment.customer_phone || undefined,
+      user_type: payment.is_guest_payment ? 'guest' as const : 'registered' as const,
+      payment_method_type: payment.payment_method_type || undefined,
+      payment_method_last_four: payment.payment_method_last_four || undefined,
+      payment_method_brand: payment.payment_method_brand || undefined,
+      metadata: payment.metadata ? JSON.parse(payment.metadata) : undefined,
+      created_at: payment.created_at,
+      ip_address: payment.ip_address || undefined,
+      user_agent: payment.user_agent || undefined
+    };
+
+    await adminNotificationService.sendTransactionNotification(adminNotificationData);
+    console.log(`✅ Admin notification sent for payment ${payment.id}`);
+  } catch (error) {
+    console.error(`❌ Failed to send admin notification for payment ${payment.id}:`, error);
+    throw error; // Re-throw to be caught by caller
+  }
+}
 
 // Helper function to map PaymentIntentStatus to PaymentStatus
 function mapPaymentIntentStatus(status: PaymentIntentStatus): PaymentStatus {
@@ -901,6 +937,16 @@ payments.post('/payments/intents/:id/confirm', optionalAuth(), async (c) => {
 
         await receiptService.sendTransactionReceipt(transactionData);
         console.log('✅ Transaction receipt sent successfully');
+
+        // Send admin notification for successful payment
+        if (mappedStatus === PaymentStatus.SUCCEEDED) {
+          try {
+            await sendAdminNotificationFromPayment(updatedPayment);
+          } catch (adminEmailError) {
+            console.error('⚠️ Failed to send admin notification:', adminEmailError);
+            // Don't fail the payment confirmation if admin email fails
+          }
+        }
       } catch (emailError) {
         console.error('⚠️ Failed to send transaction receipt:', emailError);
         // Don't fail the payment confirmation if email fails
@@ -1187,6 +1233,16 @@ payments.post('/payments/intents/:id/sync', optionalAuth(), async (c) => {
 
         await receiptService.sendTransactionReceipt(transactionData);
         console.log('✅ Transaction receipt sent successfully');
+
+        // Send admin notification for successful payment
+        if (mappedStatus === PaymentStatus.SUCCEEDED) {
+          try {
+            await sendAdminNotificationFromPayment(updatedPayment);
+          } catch (adminEmailError) {
+            console.error('⚠️ Failed to send admin notification:', adminEmailError);
+            // Don't fail the sync if admin email fails
+          }
+        }
       } catch (emailError) {
         console.error('⚠️ Failed to send transaction receipt:', emailError);
         // Don't fail the sync if email fails
