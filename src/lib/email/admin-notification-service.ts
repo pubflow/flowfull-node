@@ -124,8 +124,8 @@ export class AdminNotificationService {
     const buttonText = language === 'es' ? 'Ver en Dashboard' : 'View in Dashboard';
 
     return `
-            <div class="action-buttons">
-                <a href="${dashboardUrl}" class="btn">${buttonText}</a>
+            <div style="text-align: center; margin-top: 24px;">
+                <a href="${dashboardUrl}" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px;">${buttonText}</a>
             </div>`;
   }
 
