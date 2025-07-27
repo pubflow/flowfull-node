@@ -34,6 +34,15 @@ const envSchema = z.object({
   SESSION_COOKIE_NAME: z.string().default('session_id'),
   SESSION_REQUIRE_HTTPS: z.string().default('false').transform(val => val === 'true'),
 
+  // Authentication Validation Mode (Simplified)
+  AUTH_VALIDATION_MODE: z.enum(['DISABLED', 'STANDARD', 'ADVANCED', 'STRICT']).default('STANDARD'),
+  AUTH_ENABLE_VALIDATION_MODE: z.string().default('true').transform(val => val === 'true'),
+  AUTH_IP_VALIDATION: z.string().default('true').transform(val => val === 'true'),
+  AUTH_USER_AGENT_VALIDATION: z.string().default('true').transform(val => val === 'true'),
+  AUTH_DEVICE_VALIDATION: z.string().default('false').transform(val => val === 'true'),
+  AUTH_AUTO_INVALIDATE: z.string().default('false').transform(val => val === 'true'),
+  AUTH_LOG_VIOLATIONS: z.string().default('true').transform(val => val === 'true'),
+
   // Guest Checkout
   GUEST_CHECKOUT_ENABLED: z.string().default('true').transform(val => val === 'true'),
   GUEST_REQUIRE_EMAIL: z.string().default('true').transform(val => val === 'true'),

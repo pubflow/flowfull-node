@@ -1,8 +1,12 @@
-// Secure Authentication Middleware
+// Secure Authentication Middleware (Enhanced with Validation Mode)
 import { Context, Next } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { authService, type AuthValidationResult } from './auth-service.js';
 import type { CachedUser } from './user-cache.js';
+import { getAuthConfig } from './config';
+import { enhancedSessionCache } from './enhanced-session-cache';
+import { validationMode } from './validation-mode';
+import { SessionSecurityValidator } from './session-security';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -212,10 +216,13 @@ export function requireUser(options: AuthMiddlewareOptions = {}) {
 }
 
 /**
- * Optional authentication middleware (for public endpoints with optional user context)
+ * Enhanced Optional authentication middleware with Validation Mode support
+ * Supports: sessions, tokens, guest tokens, validation_mode security
  */
 export function optionalAuth() {
   return async (c: Context, next: Next) => {
+    const authConfig = getAuthConfig();
+
     // Try multiple authentication sources
     let auth = extractAuthToken(c);
 
@@ -233,24 +240,98 @@ export function optionalAuth() {
       return;
     }
 
-    // Try to validate authentication
+    // Try to validate authentication with enhanced system
     try {
       let result: AuthValidationResult;
+      let fromEnhancedCache = false;
 
-      if (auth.type === 'session') {
-        result = await authService.validateSession(auth.value!);
-      } else if (auth.type === 'token') {
-        result = await authService.validateToken(auth.value!);
-      } else {
-        await next();
-        return;
+      if (auth.type === 'session' && authConfig.ENABLE_VALIDATION_MODE) {
+        // Try enhanced cache first for sessions
+        const cachedResult = enhancedSessionCache.get(auth.value!);
+        if (cachedResult) {
+          fromEnhancedCache = true;
+
+          // Apply validation mode checks
+          const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+          const validationContext = {
+            sessionId: auth.value!,
+            request: c.req,
+            cachedUser: cachedResult.user,
+            securityData
+          };
+
+          const validationResult = await validationMode.validateSession(validationContext);
+
+          if (validationResult.valid) {
+            result = {
+              success: true,
+              user: {
+                id: cachedResult.user.id,
+                email: cachedResult.user.email,
+                name: cachedResult.user.name,
+                userType: cachedResult.user.userType,
+                isVerified: cachedResult.user.isVerified,
+                cachedAt: cachedResult.user.cachedAt,
+                expiresAt: cachedResult.user.expiresAt,
+                tokenType: cachedResult.user.tokenType,
+                originalIdentifier: cachedResult.user.originalIdentifier
+              },
+              fromCache: true
+            };
+          } else {
+            // Validation failed, invalidate cache if needed
+            if (validationResult.action === 'invalidate') {
+              enhancedSessionCache.invalidate(auth.value!);
+            }
+            console.log(`👤 Optional auth validation failed for ${auth.value!.substring(0, 8)}...: ${validationResult.violations.map(v => v.type).join(', ')}`);
+            result = { success: false, error: 'Session validation failed' };
+          }
+        }
+      }
+
+      // Fallback to original auth service if not using enhanced cache
+      if (!result) {
+        if (auth.type === 'session') {
+          result = await authService.validateSession(auth.value!);
+        } else if (auth.type === 'token') {
+          result = await authService.validateToken(auth.value!);
+        } else {
+          await next();
+          return;
+        }
+
+        // Store in enhanced cache if successful and validation mode is enabled
+        if (result.success && result.user && auth.type === 'session' && authConfig.ENABLE_VALIDATION_MODE) {
+          const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+          enhancedSessionCache.set(auth.value!, {
+            user: {
+              id: result.user.id,
+              email: result.user.email,
+              name: result.user.name,
+              userType: result.user.userType,
+              isVerified: result.user.isVerified || true,
+              cachedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 min default
+              tokenType: 'session',
+              originalIdentifier: auth.value!
+            },
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            sessionExpiresAt: result.user.expiresAt,
+            ipAddress: securityData.ipAddress,
+            userAgent: securityData.userAgent,
+            userDevice: securityData.userDevice,
+            lastValidated: new Date().toISOString()
+          });
+        }
       }
 
       // If successful, set user in context
       if (result.success && result.user) {
         c.set('user', result.user);
         c.set('authResult', result);
-        console.log(`👤 Optional auth success: ${result.user.id} (${result.user.userType}) via ${auth.source || 'unknown'}`);
+
+        const cacheInfo = fromEnhancedCache ? ` (enhanced cache, mode: ${authConfig.VALIDATION_MODE})` : result.fromCache ? ' (cache)' : ' (backend)';
+        console.log(`👤 Optional auth success: ${result.user.id} (${result.user.userType}) via ${auth.source || 'unknown'}${cacheInfo}`);
       } else {
         console.log(`👤 Optional auth failed via ${auth.source || 'unknown'}: ${result.error || 'unknown error'}`);
       }
