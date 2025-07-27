@@ -20,10 +20,21 @@ import { adminNotificationService } from '@/lib/email/admin-notification-service
 // Helper function to send admin notification - reuses the same transactionData that works for receipts
 async function sendAdminNotificationFromPayment(transactionData: any): Promise<void> {
   try {
+    // Use the same amount logic as receipt service: total_cents || amount_cents || 0
+    const amountCents = transactionData.total_cents || transactionData.amount_cents || 0;
+
+    // Debug: Log amount calculation
+    console.log(`🔍 [DEBUG] Admin notification amount calculation:`, {
+      total_cents: transactionData.total_cents,
+      amount_cents: transactionData.amount_cents,
+      final_amount_cents: amountCents,
+      formatted: `$${(amountCents / 100).toFixed(2)}`
+    });
+
     // Simple admin notification data - only essential fields
     const adminNotificationData = {
       transaction_id: transactionData.id,
-      amount_cents: transactionData.amount_cents,
+      amount_cents: amountCents,  // ✅ Fixed: Use unified pricing system
       currency: transactionData.currency,
       status: transactionData.status,
       provider_id: transactionData.provider_id,
