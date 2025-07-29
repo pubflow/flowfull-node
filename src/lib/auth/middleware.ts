@@ -3,6 +3,10 @@ import { HTTPException } from 'hono/http-exception';
 import { getCookie } from 'hono/cookie';
 import { bridgeValidator, SessionData } from './bridge-validator';
 import { config } from '@/config/environment';
+import { getAuthConfig } from './config';
+import { enhancedSessionCache } from './enhanced-session-cache';
+import { validationMode } from './validation-mode';
+import { SessionSecurityValidator } from './session-security';
 
 // Extend Hono context to include session data
 declare module 'hono' {
@@ -32,7 +36,7 @@ function extractSessionId(c: Context): string | null {
   return null;
 }
 
-// Authentication middleware - requires valid session
+// Enhanced Authentication middleware with validation mode support
 export async function authMiddleware(c: Context, next: Next) {
   const sessionId = extractSessionId(c);
 
@@ -43,12 +47,89 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 
   try {
-    const result = await bridgeValidator.validateAndSyncUser(sessionId);
+    // Check enhanced cache first
+    const authConfig = getAuthConfig();
+    let result: any = null;
+    let fromEnhancedCache = false;
+
+    if (authConfig.ENABLE_VALIDATION_MODE) {
+      const cachedResult = enhancedSessionCache.get(sessionId);
+      if (cachedResult) {
+        fromEnhancedCache = true;
+
+        // Apply validation mode checks
+        const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+        const validationContext = {
+          sessionId,
+          request: c.req,
+          cachedUser: cachedResult.user,
+          securityData
+        };
+
+        const validationResult = await validationMode.validateSession(validationContext);
+
+        if (!validationResult.valid) {
+          if (validationResult.action === 'invalidate') {
+            enhancedSessionCache.invalidate(sessionId);
+          }
+
+          throw new HTTPException(401, {
+            message: `Session validation failed: ${validationResult.violations.map(v => v.type).join(', ')}`
+          });
+        }
+
+        result = {
+          success: true,
+          session: {
+            user_id: cachedResult.user.id,
+            email: cachedResult.user.email,
+            name: cachedResult.user.name,
+            user_type: cachedResult.user.userType,
+            validated_at: new Date().toISOString()
+          },
+          fromCache: true
+        };
+      }
+    }
+
+    // Fallback to bridge validator if not in enhanced cache
+    if (!result) {
+      result = await bridgeValidator.validateAndSyncUser(sessionId);
+
+      // Store in enhanced cache if validation mode is enabled
+      if (result.success && authConfig.ENABLE_VALIDATION_MODE) {
+        const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+        enhancedSessionCache.set(sessionId, {
+          user: {
+            id: result.session.user_id,
+            email: result.session.email,
+            name: result.session.name,
+            userType: result.session.user_type || 'customer',
+            isVerified: true,
+            cachedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), // 10 min default
+            tokenType: 'session',
+            originalIdentifier: sessionId
+          },
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          sessionExpiresAt: result.session.expires_at,
+          ipAddress: securityData.ipAddress,
+          userAgent: securityData.userAgent,
+          userDevice: securityData.userDevice,
+          lastValidated: new Date().toISOString()
+        });
+      }
+    }
 
     if (!result.success || !result.session) {
       throw new HTTPException(401, {
         message: result.error || 'Invalid session'
       });
+    }
+
+    // Log cache performance
+    if (fromEnhancedCache) {
+      console.log(`⚡ Enhanced auth cache hit: ${sessionId.substring(0, 8)}... (mode: ${authConfig.VALIDATION_MODE})`);
     }
 
     // Set session data in context
@@ -69,18 +150,92 @@ export async function authMiddleware(c: Context, next: Next) {
   }
 }
 
-// Optional authentication middleware - allows guest access
+// Enhanced Optional authentication middleware - allows guest access
 export async function optionalAuthMiddleware(c: Context, next: Next) {
   const sessionId = extractSessionId(c);
 
   if (sessionId) {
     try {
-      const result = await bridgeValidator.validateAndSyncUser(sessionId);
+      const authConfig = getAuthConfig();
+      let result: any = null;
+      let fromEnhancedCache = false;
+
+      // Try enhanced cache first if validation mode is enabled
+      if (authConfig.ENABLE_VALIDATION_MODE) {
+        const cachedResult = enhancedSessionCache.get(sessionId);
+        if (cachedResult) {
+          fromEnhancedCache = true;
+
+          // Apply validation mode checks (but don't fail for optional auth)
+          const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+          const validationContext = {
+            sessionId,
+            request: c.req,
+            cachedUser: cachedResult.user,
+            securityData
+          };
+
+          const validationResult = await validationMode.validateSession(validationContext);
+
+          if (validationResult.valid) {
+            result = {
+              success: true,
+              session: {
+                user_id: cachedResult.user.id,
+                email: cachedResult.user.email,
+                name: cachedResult.user.name,
+                user_type: cachedResult.user.userType,
+                validated_at: new Date().toISOString()
+              },
+              fromCache: true
+            };
+          } else {
+            // For optional auth, just invalidate cache but don't fail
+            if (validationResult.action === 'invalidate') {
+              enhancedSessionCache.invalidate(sessionId);
+            }
+            console.warn(`Optional auth validation failed for ${sessionId.substring(0, 8)}...: ${validationResult.violations.map(v => v.type).join(', ')}`);
+          }
+        }
+      }
+
+      // Fallback to bridge validator if not in enhanced cache or validation failed
+      if (!result) {
+        result = await bridgeValidator.validateAndSyncUser(sessionId);
+
+        // Store in enhanced cache if successful and validation mode is enabled
+        if (result.success && authConfig.ENABLE_VALIDATION_MODE) {
+          const securityData = SessionSecurityValidator.extractSecurityData(c.req);
+          enhancedSessionCache.set(sessionId, {
+            user: {
+              id: result.session.user_id,
+              email: result.session.email,
+              name: result.session.name,
+              userType: result.session.user_type || 'customer',
+              isVerified: true,
+              cachedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+              tokenType: 'session',
+              originalIdentifier: sessionId
+            },
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            sessionExpiresAt: result.session.expires_at,
+            ipAddress: securityData.ipAddress,
+            userAgent: securityData.userAgent,
+            userDevice: securityData.userDevice,
+            lastValidated: new Date().toISOString()
+          });
+        }
+      }
 
       if (result.success && result.session) {
         c.set('session', result.session);
         c.set('user_id', result.session.user_id);
         c.set('is_guest', false);
+
+        if (fromEnhancedCache) {
+          console.log(`⚡ Enhanced optional auth cache hit: ${sessionId.substring(0, 8)}...`);
+        }
       }
     } catch (error) {
       console.warn('Optional auth validation failed:', error);

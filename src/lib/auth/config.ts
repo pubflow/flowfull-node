@@ -1,19 +1,30 @@
-// Authentication Configuration
+// Validation Mode Types (compatible with Flowless)
+export type ValidationModeType = 'DISABLED' | 'STANDARD' | 'ADVANCED' | 'STRICT';
+
+// Authentication Configuration (Simplified)
 export interface AuthConfig {
   // Backend URLs
   FLOWLESS_API_URL: string;
   BRIDGE_VALIDATION_SECRET: string;
-  
-  // Cache settings
+
+  // Validation Mode Support (Simplified)
+  VALIDATION_MODE: ValidationModeType;
+  ENABLE_VALIDATION_MODE: boolean;
+  IP_VALIDATION: boolean;
+  USER_AGENT_VALIDATION: boolean;
+  DEVICE_VALIDATION: boolean;
+  AUTO_INVALIDATE: boolean;
+  LOG_VIOLATIONS: boolean;
+
+  // Cache settings (simplified)
   USER_CACHE_TTL: number;
   USER_CACHE_REVALIDATE: number;
   USER_CACHE_MAX_ENTRIES: number;
-  CACHE_SECRET_KEY?: string;
-  
+
   // Security settings
   REQUEST_TIMEOUT: number;
   MAX_AUTH_ATTEMPTS: number;
-  
+
   // User type restrictions
   ADMIN_USER_TYPES: string[];
   USER_USER_TYPES: string[];
@@ -21,24 +32,32 @@ export interface AuthConfig {
 }
 
 /**
- * Get authentication configuration from environment variables
+ * Get authentication configuration from environment variables (Simplified)
  */
 export function getAuthConfig(): AuthConfig {
   const config: AuthConfig = {
     // Backend URLs
     FLOWLESS_API_URL: process.env.FLOWLESS_API_URL || '',
     BRIDGE_VALIDATION_SECRET: process.env.BRIDGE_VALIDATION_SECRET || '',
-    
-    // Cache settings (in milliseconds)
+
+    // Validation Mode Support (Simplified)
+    VALIDATION_MODE: (process.env.AUTH_VALIDATION_MODE as ValidationModeType) || 'STANDARD',
+    ENABLE_VALIDATION_MODE: process.env.AUTH_ENABLE_VALIDATION_MODE !== 'false',
+    IP_VALIDATION: process.env.AUTH_IP_VALIDATION !== 'false',
+    USER_AGENT_VALIDATION: process.env.AUTH_USER_AGENT_VALIDATION === 'true',
+    DEVICE_VALIDATION: process.env.AUTH_DEVICE_VALIDATION === 'true',
+    AUTO_INVALIDATE: process.env.AUTH_AUTO_INVALIDATE === 'true',
+    LOG_VIOLATIONS: process.env.AUTH_LOG_VIOLATIONS !== 'false',
+
+    // Cache settings (simplified)
     USER_CACHE_TTL: parseInt(process.env.USER_CACHE_TTL || '600000'), // 10 minutes
     USER_CACHE_REVALIDATE: parseInt(process.env.USER_CACHE_REVALIDATE || '180000'), // 3 minutes
-    USER_CACHE_MAX_ENTRIES: parseInt(process.env.USER_CACHE_MAX_ENTRIES || '500'),
-    CACHE_SECRET_KEY: process.env.CACHE_SECRET_KEY,
-    
+    USER_CACHE_MAX_ENTRIES: parseInt(process.env.USER_CACHE_MAX_ENTRIES || '1000'),
+
     // Security settings
     REQUEST_TIMEOUT: parseInt(process.env.AUTH_REQUEST_TIMEOUT || '5000'), // 5 seconds
     MAX_AUTH_ATTEMPTS: parseInt(process.env.MAX_AUTH_ATTEMPTS || '5'),
-    
+
     // User type restrictions
     ADMIN_USER_TYPES: (process.env.ADMIN_USER_TYPES || 'admin').split(',').map(s => s.trim()),
     USER_USER_TYPES: (process.env.USER_USER_TYPES || 'admin,user,premium').split(',').map(s => s.trim()),
@@ -49,7 +68,7 @@ export function getAuthConfig(): AuthConfig {
   if (!config.FLOWLESS_API_URL) {
     throw new Error('FLOWLESS_API_URL environment variable is required');
   }
-  
+
   if (!config.BRIDGE_VALIDATION_SECRET) {
     throw new Error('BRIDGE_VALIDATION_SECRET environment variable is required');
   }
