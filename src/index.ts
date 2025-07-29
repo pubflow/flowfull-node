@@ -6,21 +6,10 @@ import { timeout } from 'hono/timeout';
 import { HTTPException } from 'hono/http-exception';
 import { config, isDevelopment } from '@/config/environment';
 import { authLoggingMiddleware } from '@/lib/auth/middleware';
-import { initializeRenewalSystem, shutdownRenewalSystem } from '@/lib/renewal-system';
 
 // Import routes
 import healthRoutes from '@/routes/health';
-import paymentRoutes from '@/routes/payments';
-import webhookRoutes from '@/routes/webhooks';
-import customerRoutes from '@/routes/customers';
-import paymentMethodRoutes from '@/routes/payment-methods';
-import addressRoutes from '@/routes/addresses';
-import subscriptionRoutes from '@/routes/subscriptions';
-import guestConversionRoutes from '@/routes/guest-conversion';
-import renewalWebhookRoutes from '@/routes/webhooks/renewals';
-import adminRenewalRoutes from '@/routes/admin/renewals';
-import adminRoutes from './routes/admin';
-// import testEmailRoutes from '@/routes/test-email';
+import apiRoutes from '@/routes/api';
 
 // Create Hono app
 const app = new Hono();
@@ -116,38 +105,27 @@ if (config.REQUIRE_USER_AGENT) {
 
 // Routes
 app.route('/health', healthRoutes);
-app.route('/bridge-payment', paymentRoutes);
-app.route('/bridge-payment/webhooks', webhookRoutes);
-app.route('/bridge-payment/webhooks/renewals', renewalWebhookRoutes);
-app.route('/bridge-payment/customers', customerRoutes);
-app.route('/bridge-payment/payment-methods', paymentMethodRoutes);
-app.route('/bridge-payment/addresses', addressRoutes);
-app.route('/bridge-payment/subscriptions', subscriptionRoutes);
-app.route('/bridge-payment/guest', guestConversionRoutes);
-app.route('/bridge-payment/admin/renewals', adminRenewalRoutes);
-app.route('/bridge-payment/admin', adminRoutes);
-// app.route('/bridge-payment/test-email', testEmailRoutes);
+app.route('/api/v1', apiRoutes);
 
 // Root endpoint
 app.get('/', (c) => {
   return c.json({
-    name: 'Bridge Payments API',
+    name: 'FLOWFULL API',
     version: '1.0.0',
+    description: 'Standard architecture backend API template with Flowless session validation',
     environment: config.NODE_ENV,
     timestamp: new Date().toISOString(),
+    features: {
+      session_validation: 'Bridge Validator with LFU cache',
+      multi_database: 'libsql, MySQL, PostgreSQL support',
+      authentication: 'Flowless integration',
+      security: 'Zod validation and sanitization',
+      cron_jobs: 'Croner integration',
+      email_system: 'i18n template support'
+    },
     endpoints: {
       health: '/health',
-      payments: '/bridge-payment/payments',
-      customers: '/bridge-payment/customers',
-      payment_methods: '/bridge-payment/payment-methods',
-      addresses: '/bridge-payment/addresses',
-      subscriptions: '/bridge-payment/subscriptions',
-      guest_conversion: '/bridge-payment/guest',
-      webhooks: '/bridge-payment/webhooks',
-      renewal_webhooks: '/bridge-payment/webhooks/renewals',
-      admin_renewals: '/bridge-payment/admin/renewals',
-      admin: '/bridge-payment/admin'
-      // test_email: '/bridge-payment/test-email'
+      api: '/api/v1'
     }
   });
 });
@@ -213,9 +191,6 @@ process.on('SIGTERM', async () => {
   console.log('🛑 SIGTERM received, shutting down gracefully...');
 
   try {
-    // Shutdown renewal system
-    await shutdownRenewalSystem();
-
     // Close database connections
     const { closeDatabase } = await import('@/lib/database/connection');
     await closeDatabase();
@@ -232,9 +207,6 @@ process.on('SIGINT', async () => {
   console.log('🛑 SIGINT received, shutting down gracefully...');
 
   try {
-    // Shutdown renewal system
-    await shutdownRenewalSystem();
-
     // Close database connections
     const { closeDatabase } = await import('@/lib/database/connection');
     await closeDatabase();
@@ -251,21 +223,12 @@ process.on('SIGINT', async () => {
 const port = config.PORT;
 const host = config.HOST;
 
-console.log(`🚀 Bridge Payments API starting...`);
+console.log(`🚀 FLOWFULL API starting...`);
 console.log(`📊 Environment: ${config.NODE_ENV}`);
 console.log(`🔌 Database: ${config.DATABASE_URL.replace(/\/\/.*@/, '//***:***@')}`);
 console.log(`🔗 Flowless API: ${config.FLOWLESS_API_URL}`);
-console.log(`💳 Enabled providers: ${config.ENABLED_PROVIDERS.join(', ')}`);
-console.log(`🔒 Guest checkout: ${config.GUEST_CHECKOUT_ENABLED ? 'enabled' : 'disabled'}`);
-
-// Initialize renewal system
-if (process.env.RENEWALS_ENABLED !== 'false') {
-  initializeRenewalSystem().catch(error => {
-    console.error('❌ Failed to initialize renewal system:', error);
-  });
-} else {
-  console.log('⏸️ Renewal system disabled via environment variable');
-}
+console.log(`🔒 Session validation: ${config.AUTH_VALIDATION_MODE}`);
+console.log(`💾 Cache: LFU enabled for session optimization`);
 
 export default {
   port,

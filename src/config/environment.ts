@@ -43,43 +43,8 @@ const envSchema = z.object({
   AUTH_AUTO_INVALIDATE: z.string().default('false').transform(val => val === 'true'),
   AUTH_LOG_VIOLATIONS: z.string().default('true').transform(val => val === 'true'),
 
-  // Guest Checkout
-  GUEST_CHECKOUT_ENABLED: z.string().default('true').transform(val => val === 'true'),
-  GUEST_REQUIRE_EMAIL: z.string().default('true').transform(val => val === 'true'),
-  GUEST_REQUIRE_NAME: z.string().default('false').transform(val => val === 'true'),
-  GUEST_REQUIRE_PHONE: z.string().default('false').transform(val => val === 'true'),
-  GUEST_SESSION_DURATION: z.string().default('3600').transform(Number),
-  GUEST_AUTO_CLEANUP: z.string().default('true').transform(val => val === 'true'),
-  GUEST_CLEANUP_INTERVAL: z.string().default('86400').transform(Number),
-  GUEST_DATA_RETENTION_DAYS: z.string().default('30').transform(Number),
-  GUEST_ALLOW_CONVERSION: z.string().default('true').transform(val => val === 'true'),
-  GUEST_MAX_PAYMENTS_PER_EMAIL: z.string().default('5').transform(Number),
-
-  // Payment Providers
-  DEFAULT_PAYMENT_PROVIDER: z.enum(['stripe', 'paypal', 'authorize_net']).default('stripe'),
-  ENABLED_PROVIDERS: z.string().default('stripe').transform(val => val.split(',').map(p => p.trim())),
-  PROVIDER_FAILOVER_ENABLED: z.string().default('true').transform(val => val === 'true'),
-
-  // Stripe
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_API_VERSION: z.string().default('2023-10-16'),
-  STRIPE_CONNECT_ENABLED: z.string().default('false').transform(val => val === 'true'),
-  STRIPE_AUTOMATIC_TAX: z.string().default('false').transform(val => val === 'true'),
-
-  // PayPal
-  PAYPAL_CLIENT_ID: z.string().optional(),
-  PAYPAL_CLIENT_SECRET: z.string().optional(),
-  PAYPAL_ENVIRONMENT: z.enum(['sandbox', 'live']).default('sandbox'),
-  PAYPAL_WEBHOOK_ID: z.string().optional(),
-  PAYPAL_BN_CODE: z.string().optional(),
-
-  // Authorize.net
-  AUTHORIZE_NET_API_LOGIN: z.string().optional(),
-  AUTHORIZE_NET_TRANSACTION_KEY: z.string().optional(),
-  AUTHORIZE_NET_ENVIRONMENT: z.enum(['sandbox', 'production']).default('sandbox'),
-  AUTHORIZE_NET_SIGNATURE_KEY: z.string().optional(),
+  // Application Features
+  FEATURES_ENABLED: z.string().default('').transform(val => val.split(',').map(f => f.trim()).filter(Boolean)),
 
   // Security
   CORS_ORIGINS: z.string().default('http://localhost:3000').transform(val => val.split(',').map(o => o.trim())),
@@ -220,39 +185,20 @@ export function detectDatabaseType(url: string): string {
   throw new Error(`Unable to detect database type from URL: ${url}. Supported: postgresql, mysql, libsql, d1`);
 }
 
-// Provider validation
-export function validateProviderConfig(): void {
-  const enabledProviders = config.ENABLED_PROVIDERS;
-  const errors: string[] = [];
-
-  enabledProviders.forEach(provider => {
-    switch (provider) {
-      case 'stripe':
-        if (!config.STRIPE_SECRET_KEY) {
-          errors.push('STRIPE_SECRET_KEY is required when Stripe is enabled');
-        }
-        break;
-      case 'paypal':
-        if (!config.PAYPAL_CLIENT_ID || !config.PAYPAL_CLIENT_SECRET) {
-          errors.push('PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are required when PayPal is enabled');
-        }
-        break;
-      case 'authorize_net':
-        if (!config.AUTHORIZE_NET_API_LOGIN || !config.AUTHORIZE_NET_TRANSACTION_KEY) {
-          errors.push('AUTHORIZE_NET_API_LOGIN and AUTHORIZE_NET_TRANSACTION_KEY are required when Authorize.net is enabled');
-        }
-        break;
-      default:
-        errors.push(`Unknown payment provider: ${provider}`);
-    }
-  });
-
-  if (errors.length > 0) {
-    console.error('❌ Provider configuration errors:');
-    errors.forEach(error => console.error(`  - ${error}`));
+// Basic configuration validation
+export function validateConfig(): void {
+  if (!config.DATABASE_URL) {
+    console.error('❌ DATABASE_URL is required');
     process.exit(1);
   }
+
+  if (!config.FLOWLESS_API_URL) {
+    console.error('❌ FLOWLESS_API_URL is required');
+    process.exit(1);
+  }
+
+  console.log('✅ Configuration validated successfully');
 }
 
 // Validate configuration on import
-validateProviderConfig();
+validateConfig();
