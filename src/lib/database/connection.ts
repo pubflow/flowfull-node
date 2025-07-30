@@ -2,7 +2,7 @@ import { Kysely, PostgresDialect, MysqlDialect } from 'kysely';
 import { Pool } from 'pg';
 import { createPool } from 'mysql2';
 import { config, detectDatabaseType } from '@/config/environment';
-import type { Database as DatabaseSchema } from './types';
+import type { DatabaseSchema } from './types';
 
 // Additional dialect imports for serverless/edge databases
 let NeonDialect: any, NeonHTTPDialect: any;
@@ -164,8 +164,8 @@ export async function createDatabase(): Promise<Kysely<DatabaseSchema>> {
 // Test database connection
 async function testConnection(db: Kysely<DatabaseSchema>): Promise<void> {
   try {
-    // Try a simple query that works across all database types
-    await db.selectFrom('payment_providers').select('id').limit(1).execute();
+    // Try a simple query using the users table (most common across all systems)
+    await db.selectFrom('users').select('id').limit(1).execute();
   } catch (error) {
     // If table doesn't exist, that's okay - we just want to test connectivity
     if (error instanceof Error && error.message.includes('does not exist')) {
@@ -204,43 +204,31 @@ export async function checkDatabaseHealth(): Promise<boolean> {
   }
 }
 
-// Get database statistics
+// Get database statistics - Generic template version
 export async function getDatabaseStats() {
   try {
     const db = await getDatabase();
 
-    // Use the correct table names from the bridge-payments schema
-    const [paymentCount, userCount, customerCount, methodCount, addressCount, webhookCount] = await Promise.all([
-      db.selectFrom('payments').select(db.fn.count('id').as('count')).executeTakeFirst(),
-      db.selectFrom('users').select(db.fn.count('id').as('count')).executeTakeFirst(), // Correct: users table (base users from native-payments)
-      db.selectFrom('provider_customers').select(db.fn.count('id').as('count')).executeTakeFirst(), // Correct: provider_customers table
-      db.selectFrom('payment_methods').select(db.fn.count('id').as('count')).executeTakeFirst(),
-      db.selectFrom('addresses').select(db.fn.count('id').as('count')).executeTakeFirst(),
-      db.selectFrom('payment_webhooks').select(db.fn.count('id').as('count')).executeTakeFirst()
+    // Generic stats - only count users table (most common across all systems)
+    // When implementing specific systems, replace with your actual tables
+    const [userCount] = await Promise.all([
+      db.selectFrom('users').select(db.fn.count('id').as('count')).executeTakeFirst()
     ]);
 
     return {
-      payments: Number(paymentCount?.count || 0),
       users: Number(userCount?.count || 0),
-      customers: Number(customerCount?.count || 0),
-      payment_methods: Number(methodCount?.count || 0),
-      addresses: Number(addressCount?.count || 0),
-      webhooks: Number(webhookCount?.count || 0),
       timestamp: new Date().toISOString(),
-      database_type: detectDatabaseType(config.DATABASE_URL)
+      database_type: detectDatabaseType(config.DATABASE_URL),
+      note: 'Template version - customize for your specific system'
     };
   } catch (error) {
     console.error('Failed to get database stats:', error);
     return {
-      payments: 0,
       users: 0,
-      customers: 0,
-      payment_methods: 0,
-      addresses: 0,
-      webhooks: 0,
       timestamp: new Date().toISOString(),
       database_type: detectDatabaseType(config.DATABASE_URL),
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      note: 'Template version - customize for your specific system'
     };
   }
 }

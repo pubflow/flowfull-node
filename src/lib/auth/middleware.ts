@@ -27,6 +27,12 @@ function extractSessionId(c: Context): string | null {
     return headerSessionId;
   }
 
+  // Try query parameter
+  const querySessionId = c.req.query('session_id');
+  if (querySessionId) {
+    return querySessionId;
+  }
+
   // Try cookie
   const cookieSessionId = getCookie(c, config.SESSION_COOKIE_NAME);
   if (cookieSessionId) {
@@ -42,7 +48,7 @@ export async function authMiddleware(c: Context, next: Next) {
 
   if (!sessionId) {
     throw new HTTPException(401, {
-      message: 'Session ID required. Provide via X-Session-ID header or session_id cookie.'
+      message: 'Session ID required. Provide via X-Session-ID header, session_id query parameter, or session_id cookie.'
     });
   }
 
