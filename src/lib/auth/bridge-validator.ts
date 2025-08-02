@@ -205,39 +205,16 @@ export class BridgeValidator {
     };
   }
 
-  // Validate session and sync user data
+  // Validate session (template system - no payment sync needed)
   async validateAndSyncUser(sessionId: string): Promise<ValidationResult & { synced?: boolean }> {
     const result = await this.validateSession(sessionId);
-    
-    if (result.success && result.session && !result.cached) {
-      try {
-        // Import here to avoid circular dependencies
-        const { getPaymentUserRepository } = await import('@/lib/database/repositories');
-        const userRepo = await getPaymentUserRepository();
-        
-        // Sync user data with payment users table
-        await userRepo.upsertFromFlowless({
-          id: result.session.user_id,
-          email: result.session.email,
-          name: result.session.name,
-          userType: result.session.user_type
-        });
-        
-        return {
-          ...result,
-          synced: true
-        };
-      } catch (error) {
-        console.error('Failed to sync user data:', error);
-        // Don't fail validation if sync fails
-        return {
-          ...result,
-          synced: false
-        };
-      }
-    }
-    
-    return result;
+
+    // Template system doesn't need payment user sync
+    // Just return the validation result
+    return {
+      ...result,
+      synced: false // No sync needed for template system
+    };
   }
 
   // Batch validate multiple sessions
