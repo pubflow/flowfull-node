@@ -4,7 +4,7 @@ import { logger } from 'hono/logger';
 import { compress } from 'hono/compress';
 import { timeout } from 'hono/timeout';
 import { HTTPException } from 'hono/http-exception';
-import { config, isDevelopment } from '@/config/environment';
+import { config, isDevelopment, isLocalMode, getLocalNetworkInfo } from '@/config/environment';
 import { authLoggingMiddleware } from '@/lib/auth/middleware';
 
 // Import routes
@@ -229,6 +229,21 @@ console.log(`🔌 Database: ${config.DATABASE_URL.replace(/\/\/.*@/, '//***:***@
 console.log(`🔗 Flowless API: ${config.FLOWLESS_API_URL}`);
 console.log(`🔒 Session validation: ${config.AUTH_VALIDATION_MODE}`);
 console.log(`💾 Cache: LFU enabled for session optimization`);
+
+// Show local network information if LOCAL_MODE is enabled
+if (isLocalMode()) {
+  const networkInfo = getLocalNetworkInfo();
+  if (networkInfo) {
+    console.log(`\n🌐 LOCAL MODE ENABLED - Network Access Information:`);
+    console.log(`📱 Local IP: ${networkInfo.localIP}`);
+    console.log(`🔗 Server URL: ${networkInfo.serverUrl}`);
+    console.log(`📋 Access URLs:`);
+    networkInfo.accessUrls.forEach(url => {
+      console.log(`   • ${url}`);
+    });
+    console.log(`\n💡 Share the local IP URL with other devices on your network!`);
+  }
+}
 
 export default {
   port,

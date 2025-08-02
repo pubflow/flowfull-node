@@ -1,4 +1,43 @@
 import { z } from 'zod';
+import { networkInterfaces } from 'os';
+
+// Function to get local IP address
+function getLocalIP(): string {
+  const interfaces = networkInterfaces();
+
+  for (const name of Object.keys(interfaces)) {
+    const iface = interfaces[name];
+    if (!iface) continue;
+
+    for (const alias of iface) {
+      if (alias.family === 'IPv4' && !alias.internal) {
+        return alias.address;
+      }
+    }
+  }
+
+  return '192.168.1.100'; // Fallback IP
+}
+
+// Function to generate local CORS origins
+function generateLocalCorsOrigins(localIP: string, port: number): string[] {
+  const baseOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173'
+  ];
+
+  const localOrigins = [
+    `http://${localIP}:3000`,
+    `http://${localIP}:5173`,
+    `http://${localIP}:${port}`,
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`
+  ];
+
+  return [...baseOrigins, ...localOrigins];
+}
 
 // Environment validation schema
 const envSchema = z.object({
@@ -96,6 +135,9 @@ const envSchema = z.object({
   DEV_MOCK_PROVIDERS: z.string().default('false').transform(val => val === 'true'),
   DEV_SEED_DATA: z.string().default('false').transform(val => val === 'true'),
 
+  // Local Network Mode
+  LOCAL_MODE: z.string().default('false').transform(val => val === 'true'),
+
   // Testing
   TEST_DATABASE_URL: z.string().default('sqlite::memory:'),
   TEST_MOCK_FLOWLESS: z.string().default('true').transform(val => val === 'true'),
@@ -112,6 +154,37 @@ const envSchema = z.object({
 // Parse and validate environment variables
 function parseEnvironment() {
   try {
+    // Handle LOCAL_MODE configuration
+    if (process.env.LOCAL_MODE === 'true') {
+      const localIP = getLocalIP();
+      const port = parseInt(process.env.PORT || '3001');
+
+      console.log(`🌐 LOCAL_MODE activated - Local IP detected: ${localIP}`);
+
+      // Force HOST to 0.0.0.0 for local network access
+      process.env.HOST = '0.0.0.0';
+
+      // Auto-configure CORS origins for local network
+      if (!process.env.CORS_ORIGINS) {
+        const localCorsOrigins = generateLocalCorsOrigins(localIP, port);
+        process.env.CORS_ORIGINS = localCorsOrigins.join(',');
+        console.log(`🔗 Auto-configured CORS origins for local network`);
+      }
+
+      // Update BASE_URL to use local IP
+      if (!process.env.BASE_URL || process.env.BASE_URL.includes('localhost')) {
+        process.env.BASE_URL = `http://${localIP}:${port}`;
+        console.log(`🏠 Base URL set to: ${process.env.BASE_URL}`);
+      }
+
+      // Enable development features for local mode
+      process.env.DEV_MODE = 'true';
+      process.env.DEV_LOG_REQUESTS = 'true';
+      process.env.LOG_MODE = 'true';
+
+      console.log(`📱 Server will be accessible from other devices at: http://${localIP}:${port}`);
+    }
+
     // Auto-detect Flowless API URL based on environment if not explicitly set
     if (!process.env.FLOWLESS_API_URL) {
       const nodeEnv = process.env.NODE_ENV || 'development';
@@ -162,6 +235,28 @@ export function isProduction(): boolean {
 
 export function isTest(): boolean {
   return config.NODE_ENV === 'test';
+}
+
+export function isLocalMode(): boolean {
+  return config.LOCAL_MODE;
+}
+
+export function getLocalNetworkInfo() {
+  if (!config.LOCAL_MODE) return null;
+
+  const localIP = getLocalIP();
+  const port = config.PORT;
+
+  return {
+    localIP,
+    port,
+    serverUrl: `http://${localIP}:${port}`,
+    accessUrls: [
+      `http://localhost:${port}`,
+      `http://127.0.0.1:${port}`,
+      `http://${localIP}:${port}`
+    ]
+  };
 }
 
 // Database type detection
