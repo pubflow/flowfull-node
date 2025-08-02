@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getDatabase, getDatabaseStats } from '@/lib/database/connection';
 import { config } from '@/config/environment';
+import { requireAdmin } from '@/lib/auth/auth-middleware';
 
 const health = new Hono();
 
@@ -51,8 +52,8 @@ health.get('/', async (c) => {
   }
 });
 
-// Detailed health check - Template version
-health.get('/detailed', async (c) => {
+// Detailed health check - ADMIN ONLY (contains sensitive system stats)
+health.get('/detailed', requireAdmin(), async (c) => {
   const startTime = Date.now();
 
   try {
@@ -150,8 +151,8 @@ health.get('/live', (c) => {
   });
 });
 
-// Metrics endpoint (Prometheus format) - Template version
-health.get('/metrics', async (c) => {
+// Metrics endpoint (Prometheus format) - ADMIN ONLY (exposes system metrics)
+health.get('/metrics', requireAdmin(), async (c) => {
   try {
     const dbStats = await getDatabaseStats();
 

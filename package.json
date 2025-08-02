@@ -15,7 +15,9 @@
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",
     "validate-config": "bun run src/scripts/validate-config.ts",
-    "local-info": "bun run scripts/show-local-info.ts"
+    "local-info": "bun run scripts/show-local-info.ts",
+    "cleanup-rate-limits": "bun run src/scripts/cleanup-rate-limits.ts",
+    "rate-limit-stats": "bun run src/scripts/cleanup-rate-limits.ts stats"
   },
   "dependencies": {
     "@libsql/client": "^0.4.0",

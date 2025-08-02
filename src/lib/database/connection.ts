@@ -209,17 +209,17 @@ export async function getDatabaseStats() {
   try {
     const db = await getDatabase();
 
-    // Generic stats - only count users table (most common across all systems)
+    // Generic stats - optimized count with limit to prevent overload
     // When implementing specific systems, replace with your actual tables
     const [userCount] = await Promise.all([
-      db.selectFrom('users').select(db.fn.count('id').as('count')).executeTakeFirst()
+      db.selectFrom('users').select(db.fn.count('id').as('count')).where('id', 'is not', null).limit(10000).executeTakeFirst()
     ]);
 
     return {
       users: Number(userCount?.count || 0),
       timestamp: new Date().toISOString(),
       database_type: detectDatabaseType(config.DATABASE_URL),
-      note: 'Template version - customize for your specific system'
+      note: 'Template version - optimized count with 10k limit for performance'
     };
   } catch (error) {
     console.error('Failed to get database stats:', error);
