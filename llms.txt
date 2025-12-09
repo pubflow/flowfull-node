@@ -1,0 +1,878 @@
+# Flowfull - Build Backends in Record Time
+
+## Project Overview
+
+**Flowfull** is a backend framework that is part of the **Pubflow architecture**. It provides portable concepts and patterns for building production-ready backends with authentication, caching, database abstraction, and security features.
+
+## Architecture
+
+Pubflow consists of 3 layers:
+
+1. **Flowless** (Core Authentication Backend)
+   - Hosted ONLY at pubflow.com (NOT self-hostable)
+   - Handles user authentication, sessions, and security
+   - Provides Bridge Validation for distributed auth
+
+2. **Flowfull** (Custom Backend - THIS REPOSITORY)
+   - Your business logic, APIs, and custom features
+   - Connects to Flowless for authentication
+   - Implements the 7 core concepts (see below)
+   - Stateless and horizontally scalable
+
+3. **Flowfull-Client** (Frontend Application)
+   - React, Next.js, React Native, or any frontend
+   - Connects to Flowfull backend
+   - Uses Pubflow authentication seamlessly
+
+## Official Starter Kit
+
+**flowfull-node** - Node.js/TypeScript (Official)
+- Repository: https://github.com/pubflow/flowfull-node
+- Maintained by: Pubflow Team
+- Status: Production-ready ✅
+
+**Community Starter Kits (Coming Soon)**
+- flowfull-go - Go (Community) 🚧
+- flowfull-python - Python (Community) 🚧
+- flowfull-rust - Rust (Community) 🚧
+
+## 7 Core Concepts
+
+### 1. Bridge Validation
+Distributed authentication system that validates sessions from Flowless to Flowfull services.
+
+**Key Files:**
+- `src/lib/bridge/validator.ts` - Bridge validation logic
+- Environment: `FLOWLESS_URL`, `BRIDGE_SECRET`
+
+### 2. Validation Modes
+Security layers for session validation: DISABLED, STANDARD, ADVANCED, STRICT
+
+**Key Files:**
+- `src/lib/bridge/validation-modes.ts`
+- Environment: `VALIDATION_MODE`
+
+### 3. HybridCache
+3-tier caching system with automatic fallback: Redis (Tier 1) → LRU (Tier 2) → Database (Tier 3)
+
+**Features:**
+- Automatic fallback if Redis unavailable (LRU-only mode)
+- Cache backfilling (data copied across tiers for optimization)
+- Metrics tracking (hit rate, response time, errors)
+- Type-safe with full TypeScript support
+- Pre-configured cache instances for common use cases
+
+**Key Files:**
+- `src/lib/cache/hybrid-cache.ts` - Core HybridCache class
+- `src/lib/cache/cache-instances.ts` - Pre-configured cache instances
+- `src/lib/cache/README.md` - Usage documentation
+- Environment: `CACHE_ENABLED`, `REDIS_URL`
+
+**Available Cache Instances:**
+- `userContextCache` - User session data (TTL: 5 min, Size: 10K)
+- `permissionsCache` - User permissions (TTL: 10 min, Size: 50K)
+- `invitationTokenCache` - PASETO token metadata (TTL: 7 days, Size: 50K)
+
+**Quick Example:**
+```typescript
+import { userContextCache } from '@/lib/cache/cache-instances';
+
+// Get from cache (Redis → LRU → Database)
+const user = await userContextCache.get(userId);
+
+if (!user) {
+  // Cache miss - query database
+  const userData = await db.selectFrom('users')
+    .where('id', '=', userId)
+    .selectAll()
+    .executeTakeFirst();
+
+  // Store in cache (both Redis and LRU)
+  if (userData) {
+    await userContextCache.set(userId, userData, 300);
+  }
+
+  return userData;
+}
+
+return user; // Cache hit!
+```
+
+### 4. Trust Tokens (PASETO v4)
+Ultra-secure, general-purpose token system using PASETO v4 (Ed25519 signatures). Use it for ANY secure token needs in your application.
+
+**Use Cases:**
+- Email verification
+- Password reset
+- Invitations
+- Magic links
+- API keys
+- 2FA tokens
+- Custom actions
+- Anything you need!
+
+**Features:**
+- Cryptographically signed with Ed25519 (impossible to forge)
+- Zero database storage (tokens NOT stored in DB, only metadata in cache)
+- Flexible expiration (YOU decide the TTL via env or function parameter)
+- Single-use enforcement via cache status tracking
+- 6 layers of security validation
+- Supports custom metadata
+
+**Security Layers:**
+1. PASETO Signature Verification (Ed25519)
+2. Expiration Check (configurable time limit)
+3. Cache Status Check (single-use enforcement)
+4. Database Status Check (application-specific, optional)
+5. User Ownership Verification (application-specific, optional)
+6. Resource Validation (application-specific, optional)
+
+**Key Files:**
+- `src/lib/utils/trust-tokens.ts` - Token generation and validation
+- `scripts/generate-paseto-key.ts` - Generate Ed25519 key pair
+- `scripts/test-paseto-tokens.ts` - Test the token system
+- Environment: `PASETO_PRIVATE_KEY`, `TOKEN_TTL_HOURS`, `TOKEN_<TYPE>_TTL_HOURS`
+
+**Quick Example:**
+```typescript
+import {
+  generateTrustToken,
+  validateTrustToken,
+  markTokenAsUsed
+} from '@/lib/utils/trust-tokens';
+
+// Generate token (uses TOKEN_EMAIL_VERIFICATION_TTL_HOURS or default)
+const token = await generateTrustToken({
+  type: 'email_verification',
+  userId: user.id,
+  email: user.email
+});
+
+// Or with custom expiration (1 hour)
+const resetToken = await generateTrustToken({
+  type: 'password_reset',
+  userId: user.id
+}, 1);
+
+// Send token via email/SMS
+await sendEmail(user.email, `Verify: ${token}`);
+
+// Validate token
+const result = await validateTrustToken(token);
+
+if (result.valid) {
+  // Token is valid - perform action
+  await verifyUserEmail(result.payload.userId);
+
+  // Mark as used (prevents reuse)
+  await markTokenAsUsed(result.payload.userId);
+} else {
+  console.error('Invalid token:', result.error);
+}
+```
+
+**Setup:**
+```bash
+# 1. Generate PASETO key
+bun run token:generate
+
+# 2. Add to .env
+PASETO_PRIVATE_KEY=MC4CAQAwBQYDK2VwBCIEIE...
+TOKEN_TTL_HOURS=168  # Default: 7 days
+
+# 3. Test the system
+bun run token:test
+
+# Or with custom env file
+bun --env-file=.env.production run token:test
+```
+
+### 5. Auth Middleware
+Flexible route protection patterns with support for custom user types.
+
+**Available Middleware:**
+- `requireAuth()` - Require any authenticated user
+- `optionalAuth()` - Optional authentication (public with personalization)
+- `requireUserType(userTypes)` - Require specific user type(s)
+- `requirePermission(permission)` - Require specific permission
+
+**Key Files:**
+- `src/lib/auth/middleware.ts` - All middleware functions
+- `examples/auth-middleware-usage.ts` - Complete usage examples
+
+**Important Notes:**
+- All middleware use `extractSessionId()` internally for proper session extraction
+- `requireUserType()` and `requirePermission()` assume session is already in context
+- For standalone use, chain with `requireAuth()` first
+- Supports single user type or array of types for flexibility
+
+**Quick Examples:**
+```typescript
+// Any authenticated user
+app.get('/api/profile', requireAuth(), handler);
+
+// Public with optional auth
+app.get('/api/posts', optionalAuth(), handler);
+
+// Single user type
+app.get('/api/admin/users', requireUserType('admin'), handler);
+
+// Multiple user types (flexible!)
+app.get('/api/manager/dashboard', requireUserType(['admin', 'manager']), handler);
+
+// Custom user types (YOUR business logic)
+app.get('/api/teacher/classes', requireUserType('teacher'), handler);
+app.get('/api/seller/products', requireUserType(['seller', 'admin']), handler);
+
+// Permission-based
+app.delete('/api/posts/:id', requirePermission('posts.delete'), handler);
+
+// Chaining middleware
+app.post('/api/admin/users',
+  requireAuth(),
+  requireUserType('admin'),
+  requirePermission('users.create'),
+  handler
+);
+```
+
+**Why `requireUserType()` is Better Than `requireAuth()`:**
+
+`requireAuth()` is too restrictive - it only checks authentication but doesn't validate user types. This means you have to manually check user types in your route handlers.
+
+`requireUserType()` is **more flexible** because:
+1. ✅ **Single or Multiple Types**: Accept one user type or an array
+2. ✅ **Custom User Types**: Works with ANY user type you define (not just admin/user)
+3. ✅ **Clear Error Messages**: Shows exactly what types are allowed
+4. ✅ **Type Safety**: Validates at middleware level, not in route handler
+
+**Custom User Types Examples:**
+
+Flowfull is a **configurable starter kit** - define ANY user types for your business:
+
+```typescript
+// Business roles
+requireUserType(['manager', 'admin'])
+
+// Education
+requireUserType(['teacher', 'principal', 'admin'])
+
+// E-commerce
+requireUserType(['seller', 'admin'])
+
+// Healthcare
+requireUserType(['doctor', 'nurse'])
+
+// Subscription tiers
+requireUserType(['premium', 'enterprise', 'admin'])
+```
+
+**Best Practices:**
+- ✅ Use `requireAuth()` for basic protected routes (any authenticated user)
+- ✅ Use `requireUserType()` when you need specific user types
+- ✅ Use `optionalAuth()` for public routes with personalization
+- ✅ Use arrays for multiple user types: `requireUserType(['admin', 'manager'])`
+- ✅ Define custom user types that match your business logic
+- ✅ Chain middleware for complex requirements
+- ❌ Don't use `requireAuth()` when you need specific user types
+- ❌ Don't hardcode user type checks in route handlers
+- ❌ Don't skip authentication on sensitive routes
+
+### 6. Multi-Database Support
+Kysely ORM supporting PostgreSQL, MySQL, LibSQL, Neon, PlanetScale
+
+**Key Files:**
+- `src/lib/database/index.ts`
+- `src/lib/database/kysely.ts`
+- Environment: `DATABASE_TYPE`, `DATABASE_URL`
+
+### 7. Environment Configuration
+Zod-validated environment variables with fail-fast validation
+
+**Key Files:**
+- `src/lib/config/env.ts`
+- `.env.example`
+
+## Email System (Optional)
+
+Flowfull includes a powerful email system with i18n support and ZeptoMail integration.
+
+**Features:**
+- Multi-language templates (English, Spanish, etc.)
+- Variable replacement with `{{variable}}` syntax
+- Conditional rendering in templates
+- ZeptoMail integration with retry logic
+- Template service with automatic language detection
+- Default variables (current_year, current_date, organization_name, etc.)
+
+**Key Files:**
+- `src/lib/email/email-service.ts` - Email sending with ZeptoMail
+- `src/lib/email/template-service.ts` - Template loading and rendering
+- `src/lib/email/templates/` - HTML email templates by language
+- `src/lib/email/subjects/` - Email subjects by language
+
+**Quick Example:**
+```typescript
+import { emailService } from '@/lib/email/email-service';
+import { templateService } from '@/lib/email/template-service';
+
+// Get template with variables
+const { html, subject } = templateService.getTemplate('welcome', {
+  user_name: 'John Doe',
+  user_email: 'john@example.com',
+  verification_link: 'https://yourdomain.com/verify?token=xxx'
+}, 'en');
+
+// Send email
+const result = await emailService.sendEmail({
+  to: [{ address: 'john@example.com', name: 'John Doe' }],
+  subject,
+  htmlBody: html
+});
+
+if (result.success) {
+  console.log('✅ Email sent successfully');
+}
+```
+
+**Environment Variables:**
+```env
+# ZeptoMail Configuration
+ZEPTOMAIL_API_KEY=Zoho-enczapikey your_api_key_here
+
+# Email Settings
+EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+EMAIL_FROM_NAME=Your App Name
+EMAIL_REPLY_TO_ADDRESS=support@yourdomain.com
+EMAIL_REPLY_TO_NAME=Support Team
+
+# Organization Info (used in templates)
+ORGANIZATION_NAME=Your Organization
+ORGANIZATION_EMAIL=info@yourdomain.com
+ORGANIZATION_WEBSITE=https://yourdomain.com
+```
+
+**Common Use Cases:**
+- Welcome emails
+- Email verification (with Trust Tokens)
+- Password reset (with Trust Tokens)
+- Invitations (with Trust Tokens)
+- Notifications
+- Newsletters
+
+**Documentation:**
+See the Email Templates Guide at https://flowfull.dev/guides/email-templates for complete documentation.
+
+## Technology Stack
+
+- **Runtime**: Bun (recommended) or Node.js 18+
+- **Framework**: Hono (web framework)
+- **ORM**: Kysely (type-safe SQL query builder)
+- **Validation**: Zod (schema validation)
+- **Cache**: LRU Cache + Redis
+- **Tokens**: PASETO v4 (Ed25519)
+- **Language**: TypeScript
+
+## Environment Variables
+
+### Required
+```env
+# Flowless Configuration
+FLOWLESS_URL=https://your-instance.pubflow.com
+BRIDGE_SECRET=your-bridge-secret
+
+# Database
+DATABASE_TYPE=postgresql
+DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+
+# Server
+PORT=3000
+NODE_ENV=development
+
+# Security
+VALIDATION_MODE=STANDARD
+```
+
+### Optional
+```env
+# Cache Configuration
+CACHE_ENABLED=true
+REDIS_URL=redis://localhost:6379
+
+# Trust Tokens (PASETO)
+# Generate with: bun run token:generate
+PASETO_PRIVATE_KEY=MC4CAQAwBQYDK2VwBCIEIE...
+TOKEN_TTL_HOURS=168  # Default: 7 days
+
+# Email System (ZeptoMail)
+ZEPTOMAIL_API_KEY=Zoho-enczapikey your_api_key_here
+EMAIL_FROM_ADDRESS=noreply@yourdomain.com
+EMAIL_FROM_NAME=Your App Name
+EMAIL_REPLY_TO_ADDRESS=support@yourdomain.com
+EMAIL_REPLY_TO_NAME=Support Team
+ORGANIZATION_NAME=Your Organization
+ORGANIZATION_EMAIL=info@yourdomain.com
+ORGANIZATION_WEBSITE=https://yourdomain.com
+
+# URLs
+FRONTEND_URL=https://yourdomain.com
+BACKEND_URL=https://api.yourdomain.com
+```
+
+## Project Structure
+
+```
+flowfull/
+├── src/
+│   ├── lib/
+│   │   ├── bridge/        # Bridge validation
+│   │   ├── cache/         # HybridCache
+│   │   ├── auth/          # Middleware
+│   │   ├── database/      # Database abstraction
+│   │   ├── utils/         # Trust Tokens (PASETO)
+│   │   ├── email/         # Email system (optional)
+│   │   │   ├── email-service.ts
+│   │   │   ├── template-service.ts
+│   │   │   ├── templates/  # HTML templates by language
+│   │   │   └── subjects/   # Email subjects by language
+│   │   └── config/        # Environment config
+│   ├── routes/            # API routes
+│   └── index.ts           # Entry point
+├── migrations/            # Database migrations
+├── scripts/               # Utility scripts
+│   ├── generate-paseto-key.ts
+│   └── test-trust-tokens.ts
+├── .env.example          # Environment template
+└── README.md             # Documentation
+```
+
+## Quick Start
+
+1. **Create Flowless Instance**
+   - Visit https://pubflow.com
+   - Create a Flowless instance
+   - Copy your Bridge Secret
+
+2. **Clone Starter Kit**
+   ```bash
+   git clone https://github.com/pubflow/flowfull-node.git my-backend
+   cd my-backend
+   bun install
+   ```
+
+3. **Configure Environment**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Flowless URL and Bridge Secret
+   ```
+
+4. **Run Migrations**
+   ```bash
+   bun run migrate
+   ```
+
+5. **Start Development Server**
+   ```bash
+   bun run dev
+   ```
+
+## Available Commands
+
+### Development
+```bash
+bun run dev          # Start development server with hot reload
+bun run build        # Build for production
+bun run start        # Start production server
+```
+
+### Database
+```bash
+bun run migrate      # Run database migrations
+bun run migrate:make # Create new migration
+```
+
+### Trust Tokens
+```bash
+bun run token:generate  # Generate PASETO key pair
+bun run token:test      # Test trust tokens system
+
+# With custom env file
+bun --env-file=.env.production run token:test
+bun --env-file=.env.staging run token:test
+```
+
+### Testing
+```bash
+bun test            # Run all tests
+bun test:watch      # Run tests in watch mode
+```
+
+## Common Patterns
+
+### Protected Routes (Authentication)
+
+```typescript
+import { Hono } from 'hono';
+import { requireAuth, optionalAuth, requireUserType, requirePermission } from './lib/auth/middleware';
+
+const app = new Hono();
+
+// 1. Any authenticated user
+app.get('/api/profile', requireAuth(), async (c) => {
+  const userId = c.get('user_id');
+  const session = c.get('session');
+  return c.json({ userId, email: session.email });
+});
+
+// 2. Optional authentication (public with personalization)
+app.get('/api/posts', optionalAuth(), async (c) => {
+  const userId = c.get('user_id');
+
+  if (userId) {
+    // Personalized content for authenticated users
+    return c.json({ posts: await getPersonalizedPosts(userId) });
+  } else {
+    // Public content for guests
+    return c.json({ posts: await getPublicPosts() });
+  }
+});
+
+// 3. Single user type (admin only)
+app.get('/api/admin/users', requireUserType('admin'), async (c) => {
+  const users = await db.selectFrom('users').selectAll().execute();
+  return c.json({ users });
+});
+
+// 4. Multiple user types (admin OR manager)
+app.get('/api/manager/dashboard', requireUserType(['admin', 'manager']), async (c) => {
+  const session = c.get('session');
+  return c.json({
+    dashboard: await getDashboard(c.get('user_id'), session.user_type)
+  });
+});
+
+// 5. Custom user types (your business logic)
+app.get('/api/teacher/classes', requireUserType('teacher'), async (c) => {
+  return c.json({ classes: await getTeacherClasses(c.get('user_id')) });
+});
+
+app.get('/api/seller/products', requireUserType(['seller', 'admin']), async (c) => {
+  return c.json({ products: await getSellerProducts(c.get('user_id')) });
+});
+
+// 6. Permission-based access
+app.delete('/api/posts/:id', requirePermission('posts.delete'), async (c) => {
+  const postId = c.req.param('id');
+  await db.deleteFrom('posts').where('id', '=', postId).execute();
+  return c.json({ success: true });
+});
+
+// 7. Chaining multiple middleware
+app.post('/api/admin/users',
+  requireAuth(),                    // 1. Ensure authenticated
+  requireUserType('admin'),         // 2. Ensure admin
+  requirePermission('users.create'), // 3. Ensure permission
+  async (c) => {
+    const body = await c.req.json();
+    const user = await createUser(body);
+    return c.json({ success: true, user });
+  }
+);
+```
+
+### Using HybridCache
+```typescript
+import { hybridCache } from './lib/cache/hybrid-cache';
+
+// Get from cache (LRU → Redis → Database)
+const user = await hybridCache.get('user', userId, async () => {
+  return await db.selectFrom('users')
+    .where('id', '=', userId)
+    .selectAll()
+    .executeTakeFirst();
+});
+
+// Invalidate cache
+await hybridCache.invalidate('user', userId);
+```
+
+### Trust Tokens (Email Verification)
+```typescript
+import { generateTrustToken, validateTrustToken, markTokenAsUsed } from '@/lib/utils/trust-tokens';
+
+// Generate token (24 hours expiration)
+const token = await generateTrustToken({
+  type: 'email_verification',
+  userId: user.id,
+  email: user.email
+}, 24);
+
+// Verify token
+const result = await validateTrustToken(token);
+
+if (result.valid) {
+  // Perform action
+  await verifyUserEmail(result.payload.userId);
+
+  // Mark as used
+  await markTokenAsUsed(result.payload.userId);
+}
+```
+
+### Sending Emails with Templates
+```typescript
+import { emailService } from '@/lib/email/email-service';
+import { templateService } from '@/lib/email/template-service';
+import { generateTrustToken } from '@/lib/utils/trust-tokens';
+
+// Generate verification token
+const token = await generateTrustToken({
+  type: 'email_verification',
+  userId: user.id,
+  email: user.email
+}, 24);
+
+// Get template with variables
+const { html, subject } = templateService.getTemplate('email_verification', {
+  user_name: user.name,
+  verification_link: `${process.env.FRONTEND_URL}/verify?token=${token}`
+}, user.preferredLanguage || 'en');
+
+// Send email with retry
+const result = await emailService.sendEmailWithRetry({
+  to: [{ address: user.email, name: user.name }],
+  subject,
+  htmlBody: html
+}, 3);
+
+if (result.success) {
+  console.log('✅ Verification email sent');
+}
+```
+
+## Database Schema
+
+### Core Tables
+
+**users** (managed by Flowless, cached in Flowfull)
+- id, email, name, email_verified, created_at, updated_at
+
+**trust_tokens** (managed by Flowfull)
+- id, user_id, type, status, expires_at, used_at, created_at
+
+**sessions** (managed by Flowless, validated by Flowfull)
+- session_id, user_id, ip_address, user_agent, device_id
+
+## Security Best Practices
+
+1. **Never commit .env files** to version control
+2. **Use VALIDATION_MODE=STRICT** in production
+3. **Rotate PASETO keys** regularly
+4. **Enable Redis** for production caching
+5. **Use different keys** for dev/staging/production
+6. **Implement rate limiting** on sensitive endpoints
+7. **Log security events** (failed auth, token usage)
+
+## Scaling
+
+Flowfull is designed to be **stateless** and **horizontally scalable**:
+
+- Deploy multiple instances behind Pubflow Load Balancer
+- Use Redis for shared cache across instances
+- Database connection pooling for performance
+- No session storage in Flowfull (sessions in Flowless)
+
+## Community Contributions
+
+Want to create a starter kit for your favorite language?
+
+1. Implement the 7 core concepts
+2. Follow the naming convention: `flowfull-{language}`
+3. Include comprehensive README and examples
+4. Submit to https://github.com/pubflow
+
+## Frontend Integration
+
+Flowfull backends work seamlessly with any frontend framework. For the best developer experience, use the Flowfull Client libraries.
+
+### API Response Format
+
+All Flowfull APIs should follow this standard response format:
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": <your_data>,
+  "message": "Optional success message",
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 150,
+    "totalPages": 8,
+    "hasMore": true
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "Error message",
+  "message": "Additional context",
+  "code": "ERROR_CODE",
+  "status": 400
+}
+```
+
+### Query Parameters Standard
+
+Flowfull backends should support these standard query parameters:
+
+**Pagination:**
+- `page` - Page number (1-based)
+- `limit` - Items per page
+- `offset` - Number of items to skip
+
+**Sorting:**
+- `sort` - Field to sort by
+- `order` - Sort direction (`asc` or `desc`)
+
+**Search:**
+- `q` or `search` - Full-text search term
+
+**Filter Operators:**
+- Comparison: `field_gt`, `field_gte`, `field_lt`, `field_lte`, `field_ne`
+- String: `field_like`, `field_ilike`, `field_sw`, `field_ew`
+- Array: `field_in`, `field_nin`
+- Null: `field_null`, `field_nnull`
+- Range: `field_min`, `field_max`
+
+**Example Request:**
+```
+GET /api/products?category=electronics&price_gte=50&price_lte=200&sort=price&order=asc&page=1&limit=20
+```
+
+**Backend Implementation (Hono + Kysely):**
+```typescript
+app.get('/api/products', async (c) => {
+  let query = db.selectFrom('products');
+
+  // Filters
+  if (c.req.query('category')) {
+    query = query.where('category', '=', c.req.query('category'));
+  }
+
+  if (c.req.query('price_gte')) {
+    query = query.where('price', '>=', Number(c.req.query('price_gte')));
+  }
+
+  if (c.req.query('price_lte')) {
+    query = query.where('price', '<=', Number(c.req.query('price_lte')));
+  }
+
+  // Search
+  const search = c.req.query('q');
+  if (search) {
+    query = query.where((eb) =>
+      eb.or([
+        eb('name', 'ilike', `%${search}%`),
+        eb('description', 'ilike', `%${search}%`)
+      ])
+    );
+  }
+
+  // Sorting
+  const sort = c.req.query('sort') || 'created_at';
+  const order = c.req.query('order') || 'desc';
+  query = query.orderBy(sort as any, order as any);
+
+  // Pagination
+  const page = Number(c.req.query('page')) || 1;
+  const limit = Number(c.req.query('limit')) || 20;
+  const offset = (page - 1) * limit;
+
+  // Execute
+  const [products, countResult] = await Promise.all([
+    query.limit(limit).offset(offset).selectAll().execute(),
+    query.clearSelect().select(db.fn.count('id').as('count')).executeTakeFirst()
+  ]);
+
+  return c.json({
+    success: true,
+    data: products,
+    meta: {
+      page,
+      limit,
+      total: Number(countResult?.count || 0),
+      totalPages: Math.ceil(Number(countResult?.count || 0) / limit)
+    }
+  });
+});
+```
+
+### Frontend Usage Examples
+
+**React / Next.js:**
+```typescript
+// Using fetch
+const response = await fetch('/api/products?category=electronics&price_gte=50');
+const { success, data, meta } = await response.json();
+
+// Using Flowfull Client (recommended)
+import { api } from '@pubflow/flowfull-client';
+
+const products = await api
+  .query('/products')
+  .where('category', 'electronics')
+  .where('price', gte(50))
+  .where('price', lte(200))
+  .sort('price', 'asc')
+  .page(1)
+  .limit(20)
+  .get();
+```
+
+**React Native:**
+```typescript
+import { api } from '@pubflow/flowfull-client';
+
+const loadProducts = async () => {
+  const response = await api
+    .query('/products')
+    .search('laptop')
+    .where('category', 'electronics')
+    .where('stock', gt(0))
+    .sort('price', 'asc')
+    .page(1)
+    .limit(20)
+    .get();
+
+  if (response.success) {
+    setProducts(response.data);
+  }
+};
+```
+
+## Support
+
+- **Documentation**: https://flowfull.dev
+- **Website**: https://pubflow.com
+- **Email**: support@pubflow.com
+
+**Professional Support**:
+- **Notside.com** - Technology firm specializing in Pubflow implementations
+- Email: contact@notside.com
+- Services: Custom backend development, consulting, enterprise support
+
+## License
+
+MIT License - See LICENSE file for details
+
+---
+
+**Built with ❤️ by the Pubflow team**
+
+For more information, visit https://pubflow.com
+

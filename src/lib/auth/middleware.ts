@@ -331,17 +331,167 @@ export async function checkGuestPaymentLimits(email: string): Promise<void> {
   }
 }
 
-// Permission middleware - checks user permissions
-export function requirePermission(permission: string) {
-  return async (c: Context, next: Next) => {
-    const session = c.get('session');
+/**
+ * Require authentication - simple wrapper for authMiddleware
+ * This is the most common middleware for protected routes
+ *
+ * @example
+ * app.get('/api/profile', requireAuth(), async (c) => {
+ *   const userId = c.get('user_id');
+ *   return c.json({ userId });
+ * });
+ */
+export function requireAuth() {
+  return authMiddleware;
+}
 
+/**
+ * Optional authentication - allows both authenticated and guest access
+ * Use this for routes that behave differently based on authentication status
+ *
+ * @example
+ * app.get('/api/posts', optionalAuth(), async (c) => {
+ *   const userId = c.get('user_id');
+ *   if (userId) {
+ *     return c.json({ posts: await getPersonalizedPosts(userId) });
+ *   } else {
+ *     return c.json({ posts: await getPublicPosts() });
+ *   }
+ * });
+ */
+export function optionalAuth() {
+  return optionalAuthMiddleware;
+}
+
+/**
+ * Require specific user type(s)
+ * Flexible middleware that accepts single or multiple user types
+ *
+ * Can be used standalone (will authenticate first) or chained after requireAuth()
+ *
+ * @param userTypes - Single user type string or array of allowed user types
+ *
+ * @example
+ * // Single user type
+ * app.get('/api/admin/users', requireUserType('admin'), handler);
+ *
+ * // Multiple user types
+ * app.get('/api/manager/dashboard', requireUserType(['admin', 'manager']), handler);
+ *
+ * // Custom user types
+ * app.get('/api/teacher/classes', requireUserType('teacher'), handler);
+ *
+ * // Chained with requireAuth (recommended for clarity)
+ * app.get('/api/admin/settings', requireAuth(), requireUserType('admin'), handler);
+ */
+export function requireUserType(userTypes: string | string[]) {
+  return async (c: Context, next: Next) => {
+    // Check if session is already in context (from requireAuth or other middleware)
+    let session = c.get('session');
+
+    // If no session in context, try to authenticate
     if (!session) {
-      throw new HTTPException(401, {
-        message: 'Authentication required'
+      const sessionId = extractSessionId(c);
+
+      if (!sessionId) {
+        throw new HTTPException(401, {
+          message: 'Authentication required'
+        });
+      }
+
+      // Authenticate and set session in context
+      try {
+        const result = await bridgeValidator.validateAndSyncUser(sessionId);
+
+        if (!result.success || !result.session) {
+          throw new HTTPException(401, {
+            message: result.error || 'Invalid session'
+          });
+        }
+
+        session = result.session;
+        c.set('session', session);
+        c.set('user_id', session.user_id);
+        c.set('is_guest', false);
+      } catch (error) {
+        if (error instanceof HTTPException) {
+          throw error;
+        }
+        throw new HTTPException(401, {
+          message: 'Authentication failed'
+        });
+      }
+    }
+
+    // Validate user type
+    const allowedTypes = Array.isArray(userTypes) ? userTypes : [userTypes];
+    const currentUserType = session.user_type || 'customer';
+
+    if (!allowedTypes.includes(currentUserType)) {
+      throw new HTTPException(403, {
+        message: `Access denied. Required user type(s): ${allowedTypes.join(', ')}. Current type: ${currentUserType}`
       });
     }
 
+    await next();
+  };
+}
+
+/**
+ * Require specific permission
+ * Checks if user has the required permission (admin users bypass this check)
+ *
+ * Can be used standalone (will authenticate first) or chained after requireAuth()
+ *
+ * @param permission - Permission string to check (e.g., 'posts.delete', 'users.create')
+ *
+ * @example
+ * app.delete('/api/posts/:id', requirePermission('posts.delete'), handler);
+ * app.post('/api/users', requirePermission('users.create'), handler);
+ *
+ * // Chained with requireAuth (recommended for clarity)
+ * app.delete('/api/admin/users/:id', requireAuth(), requirePermission('users.delete'), handler);
+ */
+export function requirePermission(permission: string) {
+  return async (c: Context, next: Next) => {
+    // Check if session is already in context (from requireAuth or other middleware)
+    let session = c.get('session');
+
+    // If no session in context, try to authenticate
+    if (!session) {
+      const sessionId = extractSessionId(c);
+
+      if (!sessionId) {
+        throw new HTTPException(401, {
+          message: 'Authentication required'
+        });
+      }
+
+      // Authenticate and set session in context
+      try {
+        const result = await bridgeValidator.validateAndSyncUser(sessionId);
+
+        if (!result.success || !result.session) {
+          throw new HTTPException(401, {
+            message: result.error || 'Invalid session'
+          });
+        }
+
+        session = result.session;
+        c.set('session', session);
+        c.set('user_id', session.user_id);
+        c.set('is_guest', false);
+      } catch (error) {
+        if (error instanceof HTTPException) {
+          throw error;
+        }
+        throw new HTTPException(401, {
+          message: 'Authentication failed'
+        });
+      }
+    }
+
+    // Check permissions
     const userPermissions = session.permissions || [];
 
     if (!userPermissions.includes(permission) && !userPermissions.includes('admin')) {

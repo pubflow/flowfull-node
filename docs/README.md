@@ -1,32 +1,136 @@
-# FLOWFULL Documentation
+# 📚 FLOWFULL Documentation
 
-Documentación completa para FLOWFULL - Backend API Template con Flowless session validation.
+**Developer-Friendly Guides for Building Backends with Pubflow**
 
-## 📚 Guías Principales
+Welcome to the Flowfull documentation! Whether you're new to Pubflow or an experienced developer, these guides will help you build production-ready backends in record time.
 
-### 🚀 **Getting Started**
-- [Environment Setup](./environment-setup.md) - Configuración de variables de entorno
-- [Database Setup](./database-setup.md) - Configuración de base de datos multi-proveedor
-- [Authentication Modes](./auth-modes.md) - Modos de validación de seguridad
+🌐 **Part of the Pubflow Ecosystem**: [pubflow.com](https://pubflow.com)
 
-### 🔐 **Security & Authentication**
-- [Protected Routes](./protected-routes.md) - Cómo crear rutas seguras con middleware
-- [Bridge Validator Flow](./bridge-validator-flow.md) - Flujo completo de validación
-- [Security Best Practices](./security-best-practices.md) - Mejores prácticas de seguridad
+---
 
-### 🛠️ **Development**
-- [API Development Guide](./api-development.md) - Desarrollo de APIs con FLOWFULL
-- [Error Handling](./error-handling.md) - Manejo de errores y debugging
-- [Testing Guide](./testing.md) - Testing de rutas y middleware
+## 🌟 Essential Reading
 
-### 🚀 **Deployment**
-- [Production Deployment](./deployment.md) - Deploy en producción
-- [Performance Optimization](./performance.md) - Optimización y escalabilidad
-- [Monitoring & Logging](./monitoring.md) - Monitoreo y logs
+### 🎯 **[Core Concepts](CORE-CONCEPTS.md)** ⭐ START HERE
+**Deep dive into Flowfull's 7 portable concepts** - The foundation for understanding Flowfull:
+
+1. **Bridge Validation** - Connect to Flowless for authentication
+2. **Validation Modes** - Layered security (DISABLED, STANDARD, ADVANCED, STRICT)
+3. **HybridCache System** - 3-tier cache for lightning-fast performance
+4. **Trust Tokens (PASETO)** - Cryptographically secure tokens
+5. **Authentication Middleware** - Protect your routes
+6. **Multi-Database Support** - Use any database (PostgreSQL, MySQL, LibSQL)
+7. **Environment Configuration** - Configure with ease
+
+**Includes**: Architecture diagrams, real-world examples, Go/Python/Rust implementations
+
+**Perfect for**: Understanding the Pubflow architecture and core concepts
+
+---
+
+### 🚀 **[Starter Kit Guide](STARTER-KIT-GUIDE.md)** ⭐ QUICK START
+**Build a complete backend in 30 minutes** - Step-by-step tutorial:
+
+- ✅ Prerequisites and setup
+- ✅ Database configuration (PostgreSQL, MySQL, LibSQL/Turso)
+- ✅ Flowless integration (Pubflow or self-hosted)
+- ✅ Creating protected routes with full CRUD examples
+- ✅ Implementing cache for performance
+- ✅ Testing and deployment
+
+**Perfect for**: Getting started quickly, building your first Flowfull backend
+
+---
+
+## 🎓 Feature-Specific Guides
+
+### ⚡ **[HybridCache Guide](HYBRIDCACHE-GUIDE.md)** NEW!
+**Lightning-fast 3-tier caching system** - Make your backend 50x faster:
+
+- 🚀 97% cache hit rate in production
+- 🏗️ 3-tier architecture (LRU → Redis → Database)
+- 💡 Real-world examples (user profiles, sessions, API responses)
+- 📊 Performance metrics and optimization
+- 🔧 Advanced configuration and troubleshooting
+
+**Perfect for**: Optimizing performance, scaling horizontally
+
+---
+
+### 🔐 **[Trust Tokens Guide](TRUST-TOKENS-GUIDE.md)** NEW!
+**Secure cryptographic tokens with PASETO** - Build secure token-based features:
+
+- 📧 Email verification
+- 🔑 Password reset
+- 👥 Organization invitations
+- 🎫 API access tokens
+- 🔒 6 layers of security validation
+
+**Perfect for**: Implementing secure token-based workflows
+
+---
+
+## 📖 Configuration Guides
+
+### Getting Started
+- **[Environment Setup](./environment-setup.md)** - Configure environment variables
+- **[Database Setup](./database-setup.md)** - Set up PostgreSQL, MySQL, or LibSQL
+
+### Security & Authentication
+- **[Authentication Modes](./auth-modes.md)** - Understanding validation modes
+- **[Protected Routes](./protected-routes.md)** - Implementing route protection
+
+---
+
+## 🌟 Understanding Pubflow
+
+### The Three Layers
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  PUBFLOW ARCHITECTURE                    │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌──────────────┐      ┌──────────────┐      ┌────────┐│
+│  │   FLOWLESS   │ ───▶ │   FLOWFULL   │ ───▶ │ CLIENT ││
+│  │              │      │              │      │        ││
+│  │ • Auth       │      │ • Your APIs  │      │ • React││
+│  │ • Sessions   │      │ • Business   │      │ • Next ││
+│  │ • Users      │      │ • Database   │      │ • RN   ││
+│  └──────────────┘      └──────────────┘      └────────┘│
+│   pubflow.com          This Repo!            Your App   │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+1. **🔐 Flowless** - Core authentication backend
+   - Handles user registration, login, sessions
+   - Deployed on [Pubflow](https://pubflow.com) or self-hosted
+   - **You can build your own Flowless!**
+
+2. **⚡ Flowfull** - Your custom backend (this repository)
+   - Connects to Flowless for authentication
+   - Implements your business logic
+   - Stateless and horizontally scalable
+
+3. **🎨 Flowfull-Client** - Your frontend
+   - React, Next.js, React Native, or any framework
+   - Connects to your Flowfull backend
+
+### Why Pubflow?
+
+✅ **Build backends in record time** - Pre-built authentication
+✅ **Infinitely scalable** - Stateless design with load balancing
+✅ **Language agnostic** - Node.js, Go, Python, Rust
+✅ **Production ready** - Battle-tested patterns
+✅ **Microservices or Monolithic** - Your choice
+
+🌐 **Learn more**: [pubflow.com](https://pubflow.com)
+
+---
 
 ## 🔧 Quick Reference
 
-### **Crear Ruta Protegida**
+### **Create Protected Route**
 
 ```typescript
 import { Hono } from 'hono';

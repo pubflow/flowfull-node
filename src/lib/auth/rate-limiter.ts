@@ -16,13 +16,17 @@ export class RateLimiter {
   }
 
   private getKey(ip: string, action: string): string {
-    return `${this.sanitizeIP(ip)}:${action}`;
+    // ✅ FIX: Use FULL IP for rate limiting to avoid blocking entire networks
+    // Sanitization is ONLY for logging privacy, NOT for identification
+    return `${ip}:${action}`;
   }
 
   /**
-   * Sanitize IP for logging and storage (hide last octet for privacy)
+   * Sanitize IP for logging ONLY (hide last octet for privacy)
+   * ⚠️ WARNING: This should NEVER be used for rate limit keys!
+   * Using sanitized IPs for rate limiting blocks entire networks (e.g., 192.168.1.***)
    * @param ip - IP address
-   * @returns sanitized IP
+   * @returns sanitized IP for logging purposes only
    */
   private sanitizeIP(ip: string): string {
     if (ip.includes(':')) {
