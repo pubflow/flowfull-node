@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     expires TIMESTAMP NOT NULL
 );
 
--- Create index for performance
+-- CREATE INDEX IF NOT EXIST for performance
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires);
 
 -- SQLite/LibSQL Version (alternative syntax)
