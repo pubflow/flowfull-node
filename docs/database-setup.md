@@ -100,6 +100,8 @@ DATABASE_TYPE=libsql
 LIBSQL_AUTH_TOKEN=your_auth_token
 ```
 
+`DATABASE_URL` may also include `authToken`, `token`, `auth_token`, or `jwt` for resource mapping. Flowfull removes that secret from the runtime URL and passes it separately to the LibSQL client.
+
 **Setup Turso:**
 ```bash
 # Instalar Turso CLI

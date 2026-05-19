@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { createPool } from 'mysql2';
 import { config, detectDatabaseType } from '@/config/environment';
 import type { DatabaseSchema } from './types';
+import { parseLibSQLConnection } from './libsql-url';
 
 // Additional dialect imports for serverless/edge databases
 let NeonDialect: any, NeonHTTPDialect: any;
@@ -91,9 +92,10 @@ async function createDialect() {
       if (!LibsqlDialect) {
         throw new Error('LibSQL dialect not available. Install: bun add @libsql/kysely-libsql @libsql/client');
       }
+      const libsqlConnection = parseLibSQLConnection(dbUrl, config.LIBSQL_AUTH_TOKEN);
       return new LibsqlDialect({
-        url: dbUrl,
-        authToken: config.LIBSQL_AUTH_TOKEN
+        url: libsqlConnection.url,
+        authToken: libsqlConnection.authToken || undefined
       });
 
     case 'd1':
