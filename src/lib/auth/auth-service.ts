@@ -1,5 +1,6 @@
 // Secure Authentication Service
 import { secureUserCache, type CachedUser } from './user-cache.js';
+import { getEnv } from '@/lib/runtime';
 
 export interface AuthValidationResult {
   success: boolean;
@@ -47,11 +48,11 @@ export interface BackendTokenResponse {
 class SecureAuthService {
   private readonly FLOWLESS_API_URL: string;
   private readonly BRIDGE_SECRET: string;
-  private readonly REQUEST_TIMEOUT = parseInt(process.env.AUTH_TIMEOUT || '25000'); // Configurable timeout, default 25 seconds
+  private readonly REQUEST_TIMEOUT = parseInt(getEnv('AUTH_TIMEOUT') || '25000');
 
   constructor() {
-    this.FLOWLESS_API_URL = process.env.FLOWLESS_API_URL || '';
-    this.BRIDGE_SECRET = process.env.BRIDGE_VALIDATION_SECRET || '';
+    this.FLOWLESS_API_URL = getEnv('FLOWLESS_API_URL') || '';
+    this.BRIDGE_SECRET = getEnv('BRIDGE_VALIDATION_SECRET') || '';
 
     if (!this.FLOWLESS_API_URL) {
       throw new Error('FLOWLESS_API_URL environment variable is required');
@@ -233,8 +234,8 @@ class SecureAuthService {
       }
 
       // Check cache first
-      const cachedUser = secureUserCache.get('session', sessionId);
-      if (cachedUser && !secureUserCache.needsValidation('session', sessionId)) {
+      const cachedUser = await secureUserCache.get('session', sessionId);
+      if (cachedUser && !(await secureUserCache.needsValidation('session', sessionId))) {
         console.log(`⚡ Session validation from cache: ${sessionId.substring(0, 8)}... (instant)`);
         return { success: true, user: cachedUser, fromCache: true };
       }
@@ -243,13 +244,13 @@ class SecureAuthService {
       const backendResponse = await this.validateSessionWithBackend(sessionId);
       if (!backendResponse) {
         // Remove from cache if backend validation fails
-        secureUserCache.invalidate('session', sessionId);
+        await secureUserCache.invalidate('session', sessionId);
         return { success: false, error: 'Session validation failed' };
       }
 
       // Convert and cache the user
       const user = this.sessionResponseToCachedUser(backendResponse);
-      secureUserCache.set('session', sessionId, user);
+      await secureUserCache.set('session', sessionId, user);
 
       return { success: true, user, fromCache: false };
     } catch (error) {
@@ -269,8 +270,8 @@ class SecureAuthService {
       }
 
       // Check cache first
-      const cachedUser = secureUserCache.get('token', token);
-      if (cachedUser && !secureUserCache.needsValidation('token', token)) {
+      const cachedUser = await secureUserCache.get('token', token);
+      if (cachedUser && !(await secureUserCache.needsValidation('token', token))) {
         console.log(`⚡ Token validation from cache: ${token.substring(0, 8)}... (instant)`);
         return { success: true, user: cachedUser, fromCache: true };
       }
@@ -279,13 +280,13 @@ class SecureAuthService {
       const backendResponse = await this.validateTokenWithBackend(token);
       if (!backendResponse) {
         // Remove from cache if backend validation fails
-        secureUserCache.invalidate('token', token);
+        await secureUserCache.invalidate('token', token);
         return { success: false, error: 'Token validation failed' };
       }
 
       // Convert and cache the user
       const user = this.tokenResponseToCachedUser(backendResponse, token);
-      secureUserCache.set('token', token, user);
+      await secureUserCache.set('token', token, user);
 
       return { success: true, user, fromCache: false };
     } catch (error) {

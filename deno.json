@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "@/": "./src/"
+  },
+  "unstable": [
+    "bare-node-builtins",
+    "detect-cjs",
+    "node-globals",
+    "unsafe-proto",
+    "sloppy-imports"
+  ],
+  "nodeModulesDir": "auto"
+}

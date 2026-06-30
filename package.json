@@ -6,10 +6,21 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/index.ts",
+    "dev:node": "tsx watch src/node.ts",
+    "dev:deno": "deno run -A src/deno.ts",
+    "dev:cf": "wrangler dev",
     "dev:local": "LOCAL_MODE=true bun run --hot src/index.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
+    "build:cf": "bun run build:worker",
+    "build:worker": "bun build src/worker.ts --outdir ./dist/worker --target browser --external pg --external mysql2 --external ws --external ioredis",
     "start": "bun run dist/index.js",
+    "start:node": "tsx src/node.ts",
+    "preview": "tsx src/node.ts",
+    "start:deno": "deno run -A src/deno.ts",
     "start:local": "LOCAL_MODE=true bun run dist/index.js",
+    "deploy:cf": "wrangler deploy",
+    "preview:cf": "wrangler dev --remote",
+    "cf:typegen": "wrangler types ./worker-configuration.d.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "lint": "eslint src/**/*.ts",
@@ -19,9 +30,13 @@
     "cleanup-rate-limits": "bun run src/scripts/cleanup-rate-limits.ts",
     "rate-limit-stats": "bun run src/scripts/cleanup-rate-limits.ts stats",
     "token:generate": "bun run scripts/generate-paseto-key.ts",
-    "token:test": "bun run scripts/test-trust-tokens.ts"
+    "token:test": "bun run scripts/test-trust-tokens.ts",
+    "check:deno": "deno cache --no-check src/deno.ts",
+    "check:cf": "bun run build:cf",
+    "check:worker": "bun run build:worker"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.9",
     "@libsql/client": "^0.4.0",
     "@libsql/kysely-libsql": "^0.3.0",
     "@neondatabase/serverless": "^0.7.0",
@@ -45,11 +60,13 @@
   "devDependencies": {
     "@types/bun": "^1.2.14",
     "typescript": "^5.8.3",
+    "tsx": "^4.21.0",
     "@types/pg": "^8.10.0",
     "eslint": "^8.56.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
-    "prettier": "^3.1.0"
+    "prettier": "^3.1.0",
+    "wrangler": "4.101.0"
   },
   "keywords": [
     "backend",

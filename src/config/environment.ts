@@ -1,22 +1,19 @@
 import { z } from 'zod';
-import { networkInterfaces } from 'os';
+import { exitProcess, getEnv, setEnv } from '@/lib/runtime';
+
+const process = {
+  env: new Proxy({} as Record<string, string | undefined>, {
+    get: (_target, property: string) => getEnv(property),
+    set: (_target, property: string, value: string) => {
+      setEnv(property, value);
+      return true;
+    }
+  })
+};
 
 // Function to get local IP address
 function getLocalIP(): string {
-  const interfaces = networkInterfaces();
-
-  for (const name of Object.keys(interfaces)) {
-    const iface = interfaces[name];
-    if (!iface) continue;
-
-    for (const alias of iface) {
-      if (alias.family === 'IPv4' && !alias.internal) {
-        return alias.address;
-      }
-    }
-  }
-
-  return '192.168.1.100'; // Fallback IP
+  return getEnv('LOCAL_IP') || '127.0.0.1';
 }
 
 // Function to generate local CORS origins
@@ -214,7 +211,7 @@ function parseEnvironment() {
         console.error(`  - ${err.path.join('.')}: ${err.message}`);
       });
     }
-    process.exit(1);
+    exitProcess(1);
   }
 }
 
@@ -284,12 +281,12 @@ export function detectDatabaseType(url: string): string {
 export function validateConfig(): void {
   if (!config.DATABASE_URL) {
     console.error('❌ DATABASE_URL is required');
-    process.exit(1);
+    exitProcess(1);
   }
 
   if (!config.FLOWLESS_API_URL) {
     console.error('❌ FLOWLESS_API_URL is required');
-    process.exit(1);
+    exitProcess(1);
   }
 
   console.log('✅ Configuration validated successfully');

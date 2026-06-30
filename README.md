@@ -196,6 +196,10 @@ FLOWFULL supports multiple database types through Kysely ORM:
 
 - `bun run dev` - Start development server with hot reload
 - `bun run build` - Build for production
+- `bun run dev:cf` - Run the Cloudflare Worker locally with Wrangler
+- `bun run build:cf` - Bundle the Cloudflare Worker entry
+- `bun run deploy:cf` - Deploy the Worker with Wrangler
+- `bun run check:deno` - Check the Deno Deploy entry
 - `bun run test` - Run test suite
 - `bun run lint` - Lint code
 - `bun run format` - Format code
@@ -220,6 +224,7 @@ FLOWFULL supports multiple database types through Kysely ORM:
 
 - **[Core Concepts](docs/CORE-CONCEPTS.md)** - Deep dive into Flowfull's portable concepts
 - **[Starter Kit Guide](docs/STARTER-KIT-GUIDE.md)** - Build a backend in 30 minutes
+- **[Deployment](docs/deployment.md)** - Custom, Cloudflare Workers, and Deno Deploy paths
 - **[.env.example](.env.example)** - Complete environment variable reference
 
 ## 🌍 Language Portability

@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { authMiddleware } from '@/lib/auth/auth-middleware';
+import { requireUser } from '@/lib/auth/auth-middleware';
 
 const app = new Hono();
+const authMiddleware = requireUser();
 
 // Example protected route
 app.get('/protected', authMiddleware, async (c) => {

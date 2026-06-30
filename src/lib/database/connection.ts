@@ -1,7 +1,6 @@
 import { Kysely, PostgresDialect, MysqlDialect } from 'kysely';
-import { Pool } from 'pg';
-import { createPool } from 'mysql2';
 import { config, detectDatabaseType } from '@/config/environment';
+import { exitProcess, getEnv } from '@/lib/runtime';
 import type { DatabaseSchema } from './types';
 import { parseLibSQLConnection } from './libsql-url';
 
@@ -104,7 +103,7 @@ async function createDialect() {
         throw new Error('D1 dialect not available. Install: bun add kysely-d1');
       }
       // D1 requires the binding to be passed from Cloudflare Workers
-      const d1Database = (globalThis as any).DB || process.env.DB;
+      const d1Database = (globalThis as any).DB || getEnv('DB');
       if (!d1Database) {
         throw new Error('D1 database binding not found. Ensure DB is bound in wrangler.toml');
       }
@@ -113,6 +112,7 @@ async function createDialect() {
       });
 
     case 'postgresql':
+      const { Pool } = await import('pg');
       return new PostgresDialect({
         pool: new Pool({
           connectionString: dbUrl,
@@ -123,6 +123,7 @@ async function createDialect() {
       });
 
     case 'mysql':
+      const { createPool } = await import('mysql2');
       return new MysqlDialect({
         pool: createPool({
           uri: dbUrl,
@@ -246,9 +247,9 @@ export const db = new Proxy({} as Kysely<DatabaseSchema>, {
 });
 
 // Initialize database on module load in non-test environments
-if (config.NODE_ENV !== 'test') {
+if (config.NODE_ENV !== 'test' && getEnv('PUBFLOW_WEB_PREVIEW') !== 'true') {
   createDatabase().catch(error => {
     console.error('Failed to initialize database:', error);
-    process.exit(1);
+    exitProcess(1);
   });
 }

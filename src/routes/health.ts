@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDatabase, getDatabaseStats } from '@/lib/database/connection';
 import { config } from '@/config/environment';
 import { requireAdmin } from '@/lib/auth/auth-middleware';
+import { memoryUsage, uptimeSeconds } from '@/lib/runtime';
 
 const health = new Hono();
 
@@ -29,7 +30,7 @@ health.get('/', async (c) => {
         },
         api: {
           status: 'healthy',
-          uptime_seconds: process.uptime()
+          uptime_seconds: uptimeSeconds()
         }
       },
       note: 'Template health check - customize for your specific system'
@@ -70,8 +71,8 @@ health.get('/detailed', requireAdmin(), async (c) => {
       response_time_ms: responseTime,
       version: '1.0.0',
       environment: config.NODE_ENV || 'development',
-      uptime_seconds: process.uptime(),
-      memory_usage: process.memoryUsage(),
+      uptime_seconds: uptimeSeconds(),
+      memory_usage: memoryUsage(),
       services: {
         database: {
           healthy: true,
@@ -80,7 +81,7 @@ health.get('/detailed', requireAdmin(), async (c) => {
         },
         api: {
           healthy: true,
-          uptime_seconds: process.uptime()
+          uptime_seconds: uptimeSeconds()
         }
       },
       note: 'Template detailed health check - customize for your specific system'
@@ -146,7 +147,7 @@ health.get('/live', (c) => {
   return c.json({
     alive: true,
     timestamp: new Date().toISOString(),
-    uptime_seconds: process.uptime(),
+    uptime_seconds: uptimeSeconds(),
     note: 'Template liveness check'
   });
 });
@@ -160,13 +161,13 @@ health.get('/metrics', requireAdmin(), async (c) => {
     const metrics = [
       `# HELP flowfull_template_uptime_seconds Application uptime in seconds`,
       `# TYPE flowfull_template_uptime_seconds counter`,
-      `flowfull_template_uptime_seconds ${process.uptime()}`,
+      `flowfull_template_uptime_seconds ${uptimeSeconds()}`,
       '',
       `# HELP flowfull_template_memory_usage_bytes Memory usage in bytes`,
       `# TYPE flowfull_template_memory_usage_bytes gauge`,
-      `flowfull_template_memory_usage_bytes{type="rss"} ${process.memoryUsage().rss}`,
-      `flowfull_template_memory_usage_bytes{type="heapTotal"} ${process.memoryUsage().heapTotal}`,
-      `flowfull_template_memory_usage_bytes{type="heapUsed"} ${process.memoryUsage().heapUsed}`,
+      `flowfull_template_memory_usage_bytes{type="rss"} ${memoryUsage().rss}`,
+      `flowfull_template_memory_usage_bytes{type="heapTotal"} ${memoryUsage().heapTotal}`,
+      `flowfull_template_memory_usage_bytes{type="heapUsed"} ${memoryUsage().heapUsed}`,
       '',
       `# HELP flowfull_template_database_records_total Total number of database records`,
       `# TYPE flowfull_template_database_records_total gauge`,

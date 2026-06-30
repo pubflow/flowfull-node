@@ -1,5 +1,6 @@
 // Secure User Authentication Cache System
 import { LRUCache } from 'lru-cache';
+import { runtimeRandomSecret, sha256Hex } from '@/lib/runtime';
 
 export interface CachedUser {
   id: string;
@@ -32,7 +33,7 @@ class SecureUserCache {
   private readonly SECRET_KEY: string;
 
   constructor() {
-    this.SECRET_KEY = process.env.CACHE_SECRET_KEY || Bun.hash(Date.now().toString()).toString();
+    this.SECRET_KEY = process.env.CACHE_SECRET_KEY || runtimeRandomSecret();
     
     this.cache = new LRUCache<string, CacheEntry>({
       max: this.MAX_ENTRIES,
@@ -48,30 +49,24 @@ class SecureUserCache {
   /**
    * Generate secure cache key
    */
-  private generateCacheKey(type: 'session' | 'token', identifier: string): string {
-    // Hash the identifier for security (don't store raw tokens/sessions)
-    const hasher = new Bun.CryptoHasher('sha256');
-    hasher.update(`${type}:${identifier}`);
-    const hash = hasher.digest('hex');
+  private async generateCacheKey(type: 'session' | 'token', identifier: string): Promise<string> {
+    const hash = await sha256Hex(`${type}:${identifier}`);
     return `auth:${type}:${hash.substring(0, 16)}`;
   }
 
   /**
    * Generate security hash for cache entry
    */
-  private generateSecurityHash(user: CachedUser): string {
+  private async generateSecurityHash(user: CachedUser): Promise<string> {
     const data = `${user.id}:${user.email}:${user.userType}:${user.cachedAt}:${this.SECRET_KEY}`;
-    const hasher = new Bun.CryptoHasher('sha256');
-    hasher.update(data);
-    return hasher.digest('hex');
+    return sha256Hex(data);
   }
 
   /**
    * Verify cache entry integrity
    */
-  private verifyCacheEntry(entry: CacheEntry): boolean {
-    const expectedHash = this.generateSecurityHash(entry.user);
-    // Use Bun's secure comparison
+  private async verifyCacheEntry(entry: CacheEntry): Promise<boolean> {
+    const expectedHash = await this.generateSecurityHash(entry.user);
     return entry.hash === expectedHash;
   }
 
@@ -106,9 +101,9 @@ class SecureUserCache {
   /**
    * Get user from cache with security checks
    */
-  get(type: 'session' | 'token', identifier: string): CachedUser | null {
+  async get(type: 'session' | 'token', identifier: string): Promise<CachedUser | null> {
     try {
-      const key = this.generateCacheKey(type, identifier);
+      const key = await this.generateCacheKey(type, identifier);
       const entry = this.cache.get(key);
 
       if (!entry) {
@@ -116,7 +111,7 @@ class SecureUserCache {
       }
 
       // Verify cache entry integrity
-      if (!this.verifyCacheEntry(entry)) {
+      if (!(await this.verifyCacheEntry(entry))) {
         console.warn('🚨 Cache integrity check failed, removing entry');
         this.cache.delete(key);
         return null;
@@ -142,10 +137,10 @@ class SecureUserCache {
   /**
    * Set user in cache with security hash
    */
-  set(type: 'session' | 'token', identifier: string, user: CachedUser): void {
+  async set(type: 'session' | 'token', identifier: string, user: CachedUser): Promise<void> {
     try {
-      const key = this.generateCacheKey(type, identifier);
-      const securityHash = this.generateSecurityHash(user);
+      const key = await this.generateCacheKey(type, identifier);
+      const securityHash = await this.generateSecurityHash(user);
       
       const entry: CacheEntry = {
         user: {
@@ -166,8 +161,8 @@ class SecureUserCache {
   /**
    * Check if user needs revalidation
    */
-  needsValidation(type: 'session' | 'token', identifier: string): boolean {
-    const key = this.generateCacheKey(type, identifier);
+  async needsValidation(type: 'session' | 'token', identifier: string): Promise<boolean> {
+    const key = await this.generateCacheKey(type, identifier);
     const entry = this.cache.get(key);
 
     if (!entry) {
@@ -175,7 +170,7 @@ class SecureUserCache {
     }
 
     // Always revalidate if integrity check fails
-    if (!this.verifyCacheEntry(entry)) {
+    if (!(await this.verifyCacheEntry(entry))) {
       return true;
     }
 
@@ -185,14 +180,14 @@ class SecureUserCache {
   /**
    * Update last validated timestamp
    */
-  updateValidation(type: 'session' | 'token', identifier: string): void {
-    const key = this.generateCacheKey(type, identifier);
+  async updateValidation(type: 'session' | 'token', identifier: string): Promise<void> {
+    const key = await this.generateCacheKey(type, identifier);
     const entry = this.cache.get(key);
 
-    if (entry && this.verifyCacheEntry(entry)) {
+    if (entry && await this.verifyCacheEntry(entry)) {
       entry.lastValidated = new Date().toISOString();
       // Regenerate hash with new timestamp
-      entry.hash = this.generateSecurityHash(entry.user);
+      entry.hash = await this.generateSecurityHash(entry.user);
       this.cache.set(key, entry);
     }
   }
@@ -200,8 +195,8 @@ class SecureUserCache {
   /**
    * Invalidate user from cache
    */
-  invalidate(type: 'session' | 'token', identifier: string): void {
-    const key = this.generateCacheKey(type, identifier);
+  async invalidate(type: 'session' | 'token', identifier: string): Promise<void> {
+    const key = await this.generateCacheKey(type, identifier);
     this.cache.delete(key);
   }
 
@@ -216,12 +211,12 @@ class SecureUserCache {
   /**
    * Cleanup expired and invalid entries
    */
-  cleanup(): number {
+  async cleanup(): Promise<number> {
     const sizeBefore = this.cache.size;
     
     for (const [key, entry] of this.cache.entries()) {
       // Remove if integrity check fails or user is invalid
-      if (!this.verifyCacheEntry(entry) || !this.isUserValid(entry.user)) {
+      if (!(await this.verifyCacheEntry(entry)) || !this.isUserValid(entry.user)) {
         this.cache.delete(key);
       }
     }
@@ -251,13 +246,13 @@ class SecureUserCache {
   /**
    * Security audit - check for suspicious activity
    */
-  auditCache(): { suspicious: boolean; issues: string[] } {
+  async auditCache(): Promise<{ suspicious: boolean; issues: string[] }> {
     const issues: string[] = [];
     let suspiciousCount = 0;
 
     for (const [key, entry] of this.cache.entries()) {
       // Check for integrity issues
-      if (!this.verifyCacheEntry(entry)) {
+      if (!(await this.verifyCacheEntry(entry))) {
         issues.push(`Integrity check failed for key: ${key.substring(0, 16)}...`);
         suspiciousCount++;
       }
