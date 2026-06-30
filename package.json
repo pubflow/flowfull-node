@@ -39,7 +39,7 @@
     "@hono/node-server": "^1.19.9",
     "@libsql/client": "^0.4.0",
     "@libsql/kysely-libsql": "^0.3.0",
-    "@neondatabase/serverless": "^0.7.0",
+    "@neondatabase/serverless": "^0.4.3",
     "@planetscale/database": "^1.11.0",
     "croner": "^9.0.0",
     "hono": "^4.7.10",
@@ -55,6 +55,7 @@
     "paseto": "^3.1.4",
     "pg": "^8.11.0",
     "undici": "^6.0.0",
+    "ws": "^8.13.0",
     "zod": "^3.25.30"
   },
   "devDependencies": {
